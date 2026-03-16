@@ -32,7 +32,7 @@ paper1_rds_path<-"~/private/WP5_data/rds/"
 
 H_elsa_w4_6<-readRDS(paste0(paper1_rds_path,"H_elsa_w4_6.rds"))
 
-
+paper1_MODELS_rds_path<-"~/private/WP5_data/model_fits/"
 # refreshments: 3, 4, 6, 7, 9 and 10
 
 # Nurse Visits: 2,4,6,8,9
@@ -58,7 +58,7 @@ https://arxiv.org/pdf/2404.06967
 
 ## Age and immortal cohort assumption
 
-We assume no death event (WAITING FOR HSE death data) and we take the baseline age as a timeinvariant predictor 
+We assume no further death event than those recorded in ELSA and we take the baseline age as a timeinvariant predictor 
 
 ```{r}
 
@@ -534,16 +534,16 @@ incomplete_binary<-bin_TimeVar.long[bin_TimeVar.long %in% Lv1_incomplete.vars]
 
 meth1[incomplete_binary] <- "2l.bin"  # Two-level logistic regression
 
-## structural missingness will fail with 2l.xxx methods 
+## structural missingness will fail with 2l.xxx methods
 #meth1["mbmi"] <- "pmm"        # Single-level instead of 2l.pmm (wave 5 structural missing)
 #meth1["hscrp"] <- "pmm"       # Single-level instead of 2l.pmm (wave 5 structural missing)
 meth1["ssupport6_log1p"] <- "pmm"   # Single-level instead of 2l.pmm (conditional on partner)
+meth1["raeduc_e"] <- "2lonly.pmm"  # Safer if raeduc_e has specific values
 
 
 
 ## time invariant methods
 Lv2_incomplete.vars<-incomplete.vars[incomplete.vars %in% lv2_vars]
-meth1["raeduc_e"] <- "2lonly.pmm"   # Safer as raeduc_e has specific values 
 
 
 # Define predictor Matrix
@@ -634,7 +634,7 @@ imp_1 = mice(data = Missingdata_long,
             diagnostics = TRUE,
             printFlag = TRUE,
             maxit = 10)
-#saveRDS(imp_1, paste0(paper1_rds_path,"mice_imputationlong_rev4.rds"))
+saveRDS(imp_1, paste0(paper1_rds_path,"mice_imputationlong_rev4.rds"))
 
 ```
 
@@ -642,6 +642,7 @@ imp_1 = mice(data = Missingdata_long,
 ```{r eval=T}
 imp_1<-readRDS(paste0(paper1_rds_path,"mice_imputationlong_rev4.rds"))
 summary(imp_1)
+#saveRDS(imp, paste0(paper1_rds_path,"mice_imputation.rds"))
 plot(imp_1)
 
 
@@ -654,3 +655,4 @@ imputed_result %>% vis_miss()
 # wave 4 ssupport missingness
 imputed_result %>% filter(partner == 1) %>% select(ssupport6_log1p) %>% vis_miss
 ```
+
