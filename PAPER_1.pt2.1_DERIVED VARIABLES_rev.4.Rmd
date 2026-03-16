@@ -24,7 +24,7 @@ source("Sources/Paper1_func.R")
 
 
 #Imputed_datasets<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/mice_imputationlong_rev4.rds")
-Imputed_datasets<-readRDS("~/private/WP5_data/rds//mice_imputationlong_rev4.rds")
+Imputed_datasets<-readRDS("~/private/WP5_data/rds/mice_imputationlong_rev4.rds")
 
 #paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
 paper1_rds_path<-"~/private/WP5_data/rds/"
@@ -166,7 +166,7 @@ data_long <- complete(updated_mids, 1)
 
 global_min <- -436410
 
-
+data_long$nettotw_bu_s_original<- exp(data_long$nettotw_bu_s_log) + global_min - 1
 cutpoints <- quantile(data_long$nettotw_bu_s_original, 
                      probs = seq(0, 1, 0.2), 
                      na.rm = TRUE)
