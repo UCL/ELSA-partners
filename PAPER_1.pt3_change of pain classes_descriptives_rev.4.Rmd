@@ -23,22 +23,24 @@ library(patchwork)
 library(corrplot)
 library(GGally)
 
-source("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/Sources/Paper1_func.R")
+#source("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/Sources/Paper1_func.R")
+source("Sources/Paper1_func.R")
 
 ```
 
 ```{r eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
-paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
+#paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
+paper1_rds_path<-"~/private/WP5_data/rds/"
 
 # refreshments: 3, 4, 6, 7, 9 and 10
 
 # Nurse Visits: 2,4,6,8,9
 
-H_elsa_w4_6<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/H_elsa_w4_6.rds")
-H_elsa_w1<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/H_elsa_w1.rds")
+H_elsa_w4_6<-readRDS(paste0(paper1_rds_path,"H_elsa_w4_6.rds"))
+H_elsa_w1<-readRDS(paste0(paper1_rds_path,"H_elsa_w1.rds"))
 
 ## imputed dataset
-Imputed_datasets<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/mice_imputationlong_rev4.rds")
+Imputed_datasets<-readRDS(paste0(paper1_rds_path,"mice_imputationlong_rev4.rds"))
 
 ```
 
