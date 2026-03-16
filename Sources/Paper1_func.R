@@ -2074,7 +2074,7 @@ label_variables_for_LTA <- function(mids_object) {
           time = wave - 3,
           # Binary MLTC variable
           Sex_BIN = case_when(
-            ragender == "0" ~ "Male",   # ragender recoded 1→0 (male), 2→1 (female) in pt2; stored as character after mice 2l.bin
+            ragender == "0" ~ "Male",   # ragender is a 2-level factor ("0"=male, "1"=female) after mice 2l.bin imputation
             ragender == "1" ~ "Female",
             TRUE ~ NA_character_
           )%>% factor(levels = c("Female", "Male")),
