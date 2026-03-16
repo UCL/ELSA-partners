@@ -251,7 +251,7 @@ cont.vars<-c(#paste0("r",4:6,"agey"),            # age                          
              paste0("r",4:6,"adltot6"),        # count of 6 ADL items             (continuous); incomp
              paste0("r",4:6,"painlv"),         # Pain level (0-3)                 (continuous); incomp
              paste0("r",4:6,"ssupport6_log1p"),      # Marital strain                   (continuous); incomp 
-             paste0("r",4:6,"cesd_lat")        # cesd                             (continuous); incomp 
+             paste0("r",4:6,"cesd_lat_shifted")        # cesd                             (continuous); incomp 
             )
 
 Missingdata_wide<-Missingdata_wide %>% mutate(
