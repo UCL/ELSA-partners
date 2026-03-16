@@ -26,16 +26,9 @@ library(corrplot)
 library(GGally)
 source("Sources/Paper1_func.R")
 
-#ELSA_tab_path<-"c:/Users/d.vitali/OneDrive - University College London/CRIISP/00_WP5/00_WP5_data/5050tab/UKDA-5050-tab/tab/"
 ELSA_tab_path<-"~/private/WP5_data/tab/"
-
-#clean_tab_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/"
 clean_tab_path<-"~/private/WP5_data/"
-
-#paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
 paper1_rds_path<-"~/private/WP5_data/rds/"
-
-#paper1_MODELS_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/LatGrCrv_mod/Pain - trajectory profiling/model_fits/"
 paper1_MODELS_rds_path<-"~/private/WP5_data/model_fits/"
 
 
@@ -253,7 +246,7 @@ CRPVars   <-c("r4hscrp","r6hscrp")    # C-reactive Proteine measure (only w4 & w
 finVARS   <- c(paste0("r",4:6,"nettotw_bu_s"),
                paste0("r",4:6,"totwq5_bu_s"))
 
-SSuppVARS<- c(paste0("r",4:6,"ssupport6"),  # Marital strain items
+SSuppVARS<- c(paste0("r",4:6,"ssupport6"),  # Marital strain sum score — pre-computed in raw ELSA harmonised data; not derived here
                 paste0("r",4:6,"sustdfe"), 
                 paste0("r",4:6,"srely"), 
                 paste0("r",4:6,"sopenup"), 
@@ -283,7 +276,7 @@ DemoVars<-c("raracem",
             paste0("r",c(1,4:6),"arthre"), # arthritis (osteoarthritis | rheumatoid | arthritis type not specified)
             paste0("r",c(1,4:6),"cancre"), # cancer
             paste0("r",c(1,4:6),"alzhe"),  # Alzheimer's disease
-            paste0("r",c(1,4:6),"demene"), # dementiar4psyche
+            paste0("r",c(1,4:6),"demene"), # dementia
             paste0("r",c(1,4:6),"psyche"), # dementia
 
 
@@ -307,7 +300,7 @@ DemoVars<-c("raracem",
 4. 
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 #select wave 4,5,6
-H_elsa_w4_6<-H_elsa_w1_9 %>% dplyr::select(all_of(c("idauniq","ragender", 
+H_elsa_w4_6<-H_elsa_w1_9 %>% dplyr::select(all_of(c("idauniq","ragender", # ragender: 1=male, 2=female in raw data; recoded to factor("0","1") in pt2 before imputation
                                                     inwVars,
                                                     iwstatVars,
                                                     proxyVars,
@@ -368,8 +361,9 @@ all negative value codes that correspond to an NA reason are substituted with NA
 
 ##### Preserving NA-code "-15" as EDUCATION VARIABLE CATEGORY "OTHER"
 
-## preserving category "-15" as "other" education, 
-# we recode value -15 to value "2" (unused) to prevent treating -15 as missing value further down in the pipeline
+## preserving category "-15" as "other" education,
+# we recode value -15 to value "2" to prevent treating -15 as missing value further down in the pipeline
+# -15 (ambiguous response) → 2 ("Other education"), matching factor levels in label_variables_for_LTA()
 
 H_elsa_w1$raeduc_e <- ifelse(H_elsa_w1$raeduc_e == -15, 2,H_elsa_w1$raeduc_e)
 H_elsa_w4_6$raeduc_e <- ifelse(H_elsa_w4_6$raeduc_e == -15, 2,H_elsa_w4_6$raeduc_e)
@@ -596,13 +590,13 @@ timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
 ```{r}
 
 #fit_free<-readRDS(paste0(paper1_MODELS_rds_path,"cesd_lat_free_fit20260313_160306.rds"))
+# hardcoded timestamp — intentional; update if model is refitted
 fit_metric<-readRDS(paste0(paper1_MODELS_rds_path,"cesd_lat_metricInv_fit20260313_160306.rds"))
 
 cesd_scores <- lavPredict(fit_metric, 
                         newdata = H_elsa_w4_6, 
                         type = "lv")
 
-#H_elsa_w4_6$r3cesd_lat<-cesd_scores[,1]
 H_elsa_w4_6$r4cesd_lat<-cesd_scores[,1]
 H_elsa_w4_6$r4cesd_lat %>% hist
 H_elsa_w4_6$r5cesd_lat<-cesd_scores[,2]
@@ -649,7 +643,7 @@ H_elsa_w4_6 <- H_elsa_w4_6 %>%
 ###############################################################
 ###############################################################
 ### MLTC: count of doctor-diagnosed illnesses [@poole2020combined]):
-  # rXangine | rXhrtatte: CHD (angina | myocardial infarction)
+  # rXangine: CHD (angina) — Poole 2020 definition + psyche; hrtatte (MI) excluded by design
   # rXstroke: stroke
   # rXdiabe: diabetes/high blood glucose
   # rXlunge: pulmonary disease (chronic bronchitis, emphysema)
@@ -780,7 +774,7 @@ responded is categorised as having a partner if any of the following is true:
 ```{r}
 H_elsa_w4_6 <- H_elsa_w4_6 %>%
   mutate(
-    r4partner = case_when(r4mpart == 1 | r4mstat == 1 | r4ssupport6>=0 ~ 1 ,
+    r4partner = case_when(r4mpart == 1 | r4mstat == 1 | r4ssupport6>=0 ~ 1 , # >=0: negative codes = ELSA missingness flags; valid scores range 1–4
                           TRUE ~ 0),
     r5partner = case_when(r5mpart == 1 | r5mstat == 1 | r5ssupport6>=0 ~ 1 ,
                           TRUE ~ 0),
