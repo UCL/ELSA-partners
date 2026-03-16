@@ -1,0 +1,856 @@
+---
+title: "Data preparation"
+author: "Diego Vitali"
+output: 
+  github_document:
+    toc: True
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+editor_options: 
+  markdown: 
+    wrap: 72
+bibliography: references.bib
+
+---
+```{r setup, eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+library(lavaan)
+library(semTools)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(naniar)
+library(NbClust)
+library(readr)
+library(polycor)
+library(patchwork)
+library(corrplot)
+library(GGally)
+source("Sources/Paper1_func.R")
+
+#ELSA_tab_path<-"c:/Users/d.vitali/OneDrive - University College London/CRIISP/00_WP5/00_WP5_data/5050tab/UKDA-5050-tab/tab/"
+ELSA_tab_path<-"~/private/WP5_data/tab/"
+
+#clean_tab_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/"
+clean_tab_path<-"~/private/WP5_data/"
+
+#paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
+paper1_rds_path<-"~/private/WP5_data/rds/"
+
+#paper1_MODELS_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/LatGrCrv_mod/Pain - trajectory profiling/model_fits/"
+paper1_MODELS_rds_path<-"~/private/WP5_data/model_fits/"
+
+
+# refreshments: 3, 4, 6, 7, 9 and 10
+
+# Nurse Visits: 2,4,6,8,9
+
+```
+
+
+# IMPORT impact IRT data
+```{r eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+H_elsa_w1_9<-read.csv(paste0(clean_tab_path,"Hg3_w1_9_ALL.tab"), header=T)
+
+################################################################################
+## IMPACT ESTIMATES  (Fscores from IRT)
+################################################################################
+impactw2_8<-readRDS(paste0(paper1_rds_path,"impactEstimates2-8_partialScalar.rds")) 
+
+## merging impact estimates DF with main DF
+H_elsa_w1_9<-merge(impactw2_8,H_elsa_w1_9, by = "idauniq", all = TRUE)
+```
+
+# IMPORT ELSA data
+```{r eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+################################################################################
+## PAIN DURATION VARIABLE (hepag)
+################################################################################
+# HEPAG
+# How long has the pain been bothering you? ((if pain AT LEAST moderate or severe))
+#	Value = 1.0	Label = ...less than 3 months,
+              #	Value = 2.0	Label = more than 3 months, but less than 6 months,
+              #	Value = 3.0	Label = more than 6 months, but less than 12 months,
+              #	Value = 4.0	Label = or more than 12 months?
+              #	Value = -1.0	Label = Item not applicable
+              #	Value = -9.0	Label = Refusal
+              #	Value = -8.0	Label = Don't Know
+              #	Value = -2.0	Label = Schedule not applicable
+    #        "hepaj", # Are you currently receiving any treatment for your pain? 
+    #         1:yes;2:no
+    
+    #       "hepak3" # How well does the treatment control your pain? 
+    #         1:very well; 2:fairly well; 3:not very well; 4:not at all;
+
+loc_varnames<-c("hepawba", # *Whether feel pain in back*
+                "hepawhi", # *Whether feel pain in hips*
+                "hepawkn", # *Whether feel pain in knees*
+                "hepawfe", # *Whether feel pain in feet*
+                "hepawmo", # *Whether feel pain in mouth or teeth*
+                "hepawot", # *Whether feel pain elsewhere*
+                "hepawal" # *Whether feel pain all over*
+                )
+
+
+
+# importing the wave 4 variables that are not in the harmonised Dataset
+elsa_w4_core <- read_delim(paste0(ELSA_tab_path,"wave_4_elsa_data_v3.tab"), 
+                          delim = "\t",
+                          col_select = all_of(c("idauniq", "hepag","hepaj",loc_varnames)))
+
+elsa_w5_core <- read_delim(paste0(ELSA_tab_path,"wave_5_elsa_data_v4.tab"), 
+                          delim = "\t",
+                          col_select = all_of(c("idauniq", "hepag","hepaj",loc_varnames)))
+
+elsa_w6_core <- read_delim(paste0(ELSA_tab_path,"wave_6_elsa_data_v2.tab"), 
+                          delim = "\t",
+                          col_select = all_of(c("idauniq", "HePag","HePaj",loc_varnames)))
+
+
+#renaming pain duration variables to suit Harmonized data
+
+colnames(elsa_w4_core)<-c("idauniq", "r4hepag","r4hepaj",paste0("r4",loc_varnames))
+colnames(elsa_w5_core)<-c("idauniq", "r5hepag","r5hepaj",paste0("r5",loc_varnames))
+colnames(elsa_w6_core)<-c("idauniq", "r6hepag","r6hepaj",paste0("r6",loc_varnames))
+
+H_elsa_w1_9<-merge(elsa_w4_core,H_elsa_w1_9, by = "idauniq", all = TRUE)
+H_elsa_w1_9<-merge(elsa_w5_core,H_elsa_w1_9, by = "idauniq", all = TRUE)
+H_elsa_w1_9<-merge(elsa_w6_core,H_elsa_w1_9, by = "idauniq", all = TRUE)
+
+
+################################################################################
+## C-Reactive Proteine var from Nurse data
+################################################################################
+
+## CRP
+#var: hscrp
+# Value = -11.0	Label = Blood sample not taken
+#	Value = -1.0	Label = Sample not received
+#	Value = 99998.0	Label = Refusal
+#	Value = -9.0	Label = TEXT
+#	Value = -8.0	Label = Possible presence of variant haemoglobin
+#	Value = -7.0	Label = Sample unsuitable for analysis (variety of causes)
+#	Value = -6.0	Label = Sample took more than five days to reach the lab so is unsuitable for analysis
+#	Value = -5.0	Label = Indicates that triglyceride measurement is unreliable
+#	Value = -4.0	Label = Indicates that total cholesterol measurement is unreliable
+#	Value = -3.0	Label = Sample received but was haemolysed and so not suitable for analysis
+#	Value = -2.0	Label = Sample received but insufficient blood for analysis
+#	Value = 99999.0	Label = Don't Know
+
+elsa_w4_nurse <- read_delim(paste0(ELSA_tab_path,"wave_4_nurse_data.tab"), 
+                          delim = "\t",
+                          col_select = all_of(c("idauniq", "hscrp")))
+elsa_w6_nurse <- read_delim(paste0(ELSA_tab_path,"wave_6_elsa_nurse_data_v2.tab"), 
+                          delim = "\t",
+                          col_select = all_of(c("idauniq", "hscrp")))
+
+#renaming pain duration variables to suit Harmonized data
+
+colnames(elsa_w4_nurse)<-c("idauniq", "r4hscrp")
+colnames(elsa_w6_nurse)<-c("idauniq", "r6hscrp")
+
+H_elsa_w1_9<-merge(elsa_w4_nurse,H_elsa_w1_9, by = "idauniq", all = TRUE)
+H_elsa_w1_9<-merge(elsa_w6_nurse,H_elsa_w1_9, by = "idauniq", all = TRUE)
+
+
+################################################################################
+## FINANCIALLY DERIVED VARIABLES
+################################################################################
+elsa_w1_fin <- read_delim(paste0(ELSA_tab_path,"wave_1_financial_derived_variables.tab"), 
+                          delim = "\t",
+                          col_select = all_of(c("idauniq", 
+                                         "nettotw_bu_s",  # net total wealth
+                                         "totwq5_bu_s" )))%>%# net total wealth quintiles
+                                                  mutate(
+                                                    nettotw_bu_s = as.integer(nettotw_bu_s),
+                                                    totwq5_bu_s = as.integer(totwq5_bu_s))
+
+elsa_w4_fin <- read_delim(paste0(ELSA_tab_path,"wave_4_financial_derived_variables.tab"), 
+                          delim = "\t",
+                          col_select = all_of(c("idauniq", 
+                                         "nettotw_bu_s",  # net total wealth
+                                         "totwq5_bu_s" ))) %>%# net total wealth quintiles
+                                                  mutate(
+                                                    nettotw_bu_s = as.integer(nettotw_bu_s),
+                                                    totwq5_bu_s = as.integer(totwq5_bu_s))
+
+elsa_w5_fin <- read_delim(paste0(ELSA_tab_path,"wave_5_financial_derived_variables.tab"), 
+                          delim = "\t",
+                          col_select = all_of(c("idauniq", 
+                                         "nettotw_bu_s",  # net total wealth
+                                         "totwq5_bu_s")))%>% # net total wealth quintiles
+                                                  mutate(
+                                                    nettotw_bu_s = as.integer(nettotw_bu_s),
+                                                    totwq5_bu_s = as.integer(totwq5_bu_s))
+
+elsa_w6_fin<- read_delim(paste0(ELSA_tab_path,"wave_6_financial_derived_variables.tab"), 
+                          delim = "\t",
+                          col_select = all_of(c("idauniq", 
+                                         "nettotw_bu_s",  # net total wealth
+                                         "totwq5_bu_s"))) %>% # net total wealth quintiles
+                                                  mutate(
+                                                    nettotw_bu_s = as.integer(nettotw_bu_s),
+                                                    totwq5_bu_s = as.integer(totwq5_bu_s))
+
+
+#renaming variables to suit Harmonized data
+
+
+
+colnames(elsa_w1_fin)<-c("idauniq", "r1nettotw_bu_s","r1totwq5_bu_s")
+colnames(elsa_w4_fin)<-c("idauniq", "r4nettotw_bu_s","r4totwq5_bu_s")
+colnames(elsa_w5_fin)<-c("idauniq", "r5nettotw_bu_s","r5totwq5_bu_s")
+colnames(elsa_w6_fin)<-c("idauniq", "r6nettotw_bu_s","r6totwq5_bu_s")
+
+
+## merging
+H_elsa_w1_9<-merge(elsa_w1_fin,H_elsa_w1_9, by = "idauniq", all = TRUE)
+H_elsa_w1_9<-merge(elsa_w4_fin,H_elsa_w1_9, by = "idauniq", all = TRUE)
+H_elsa_w1_9<-merge(elsa_w5_fin,H_elsa_w1_9, by = "idauniq", all = TRUE)
+H_elsa_w1_9<-merge(elsa_w6_fin,H_elsa_w1_9, by = "idauniq", all = TRUE)
+
+```
+
+
+
+```{r eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+### list longitudinal variables that will be used
+
+inwVars   <- paste0("inw",4:6)        # Whether in current wave
+
+proxyVars <- paste0("r",4:6,"proxy")  # Whether responses are proxy
+
+iwstatVars<- paste0("r",4:6,"iwstat") # Respondet status (alive..)
+
+ageVars   <- paste0("r",4:6,"agey")   # Age variables
+
+painVars  <- paste0("r",4:6,"painlv") # Pain severity variables
+
+painBin   <- paste0("r",4:6,"painfr")  # Whether often bother by pain
+
+hepagVars <- paste0("r",4:6,"hepag") # How long the pain has been
+
+loc_vars  <- outer(paste0("r", 4:6),  # Prefixes
+                  loc_varnames,      # Base names
+                  paste0            # Function to combine
+                  ) %>% as.vector()
+
+impactVars<- paste0("r",4:6,"lvimp")  # health limits self-care and work activities
+
+deprVars<- c(paste0("r",3:6,"cesd"),  # cesd total score
+             paste0("r",3:6,"depres"),
+             paste0("r",3:6,"effort"),
+             paste0("r",3:6,"sleepr"),
+             paste0("r",3:6,"whappy"),
+             paste0("r",3:6,"flone"),
+             paste0("r",3:6,"fsad"),
+             paste0("r",3:6,"going"),
+             paste0("r",3:6,"enlife"))
+
+lonelyness_var<-c(paste0("r",3:6,"lnlys"))
+
+CRPVars   <-c("r4hscrp","r6hscrp")    # C-reactive Proteine measure (only w4 & w6)
+
+finVARS   <- c(paste0("r",4:6,"nettotw_bu_s"),
+               paste0("r",4:6,"totwq5_bu_s"))
+
+SSuppVARS<- c(paste0("r",4:6,"ssupport6"),  # Marital strain items
+                paste0("r",4:6,"sustdfe"), 
+                paste0("r",4:6,"srely"), 
+                paste0("r",4:6,"sopenup"), 
+                paste0("r",4:6,"scritze"), 
+                paste0("r",4:6,"sletdow"), 
+                paste0("r",4:6,"sgetnev")
+              )
+
+PActVars<-c(paste0("r",4:6,"vgactx_e"),# - Vigorous Act
+           paste0("r",4:6,"mdactx_e"),# - Moderately energetic Act
+           paste0("r",4:6,"ltactx_e"))# - Mildly energetic Act)
+
+DemoVars<-c("raracem",
+            "raeduc_e",
+            paste0("r",c(1,4:6),"work"),  # whether does paid work
+            paste0("r",4:6,"mpart"),      # implied partnership
+            paste0("r",4:6,"mstat"),      # partnership status (married)
+            paste0("r",c(1,4:6),"smoken"),# smoking
+            paste0("r",4:6,"drinkwn_e"),  # Drinking
+            paste0("r",c(4,6),"mbmi"),    # measured BMI
+            ###### MLTC
+            paste0("r",c(1,4:6),"angine"), # angina pectoris
+            paste0("r",c(1,4:6),"hrtatte"),# myocardial infarction
+            paste0("r",c(1,4:6),"stroke"), # stroke
+            paste0("r",c(1,4:6),"diabe"),  # diabetes
+            paste0("r",c(1,4:6),"lunge"),  # pulmonary disease (chronic bronchitis, emphysema)
+            paste0("r",c(1,4:6),"arthre"), # arthritis (osteoarthritis | rheumatoid | arthritis type not specified)
+            paste0("r",c(1,4:6),"cancre"), # cancer
+            paste0("r",c(1,4:6),"alzhe"),  # Alzheimer's disease
+            paste0("r",c(1,4:6),"demene"), # dementiar4psyche
+            paste0("r",c(1,4:6),"psyche"), # dementia
+
+
+            paste0("r",c(1,4:6),"parkine"), # Parkinson
+            paste0("r",c(4:6),"adltot6"),   # adl total 6 item count (for inputation) 
+            paste0("r",c(4:6),"shlt")      # self reported health (for inputation) 
+)
+
+
+```
+
+
+
+
+
+# SELECTING WAVE 4-6
+
+1. select variables of interest
+2. select sample 50yo or older
+3. exclude responded with unknown live-status (potentially dead at wave 4,5,6)
+4. 
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+#select wave 4,5,6
+H_elsa_w4_6<-H_elsa_w1_9 %>% dplyr::select(all_of(c("idauniq","ragender", 
+                                                    inwVars,
+                                                    iwstatVars,
+                                                    proxyVars,
+                                                    ageVars,
+                                                    DemoVars,
+                                                    deprVars,
+                                                    lonelyness_var,
+                                                    painVars,
+                                                    painBin,
+                                                    hepagVars,
+                                                    loc_vars,
+                                                    impactVars,
+                                                    finVARS,
+                                                    SSuppVARS,
+                                                    PActVars,
+                                                    CRPVars))) %>% filter(inw4 == 1) # n = 11050
+
+
+H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r4agey>=50) # n = 10749
+
+########################################
+############ filtering out "CAT" states
+#######################################
+#  rXiwstat == 1 ~ "responded, alive",
+#  rXiwstat == 4 ~ "no-response but alive",
+#  rXiwstat == 5 ~ "died between the last interview and the current one",
+#  rXiwstat == 6 ~ "died in a previous wave",
+#  rXiwstat == 7 ~ "dropped out from sample",
+#  rxiwstat == 9 ~ "cat state"
+####### THIS WONT BE NECESSARY WITH HSE data
+
+H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r4iwstat != 9) # n = 10749
+H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r5iwstat != 9) # n = 10071
+H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r6iwstat != 9) # n = 9452
+
+
+########################################
+############ filtering out responded that died at wave 6 or previously
+#######################################
+H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r6iwstat != 6, r6iwstat != 5 ) # n = 8726
+
+
+H_elsa_w1<-H_elsa_w1_9 %>% filter(r1cohort_e == 1, 
+#                                  r1proxy != 1,
+                                  r1agey>=50
+                                  )
+
+
+
+
+```
+
+
+# Clearing missingness codes
+
+all negative value codes that correspond to an NA reason are substituted with NA
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+##### Preserving NA-code "-15" as EDUCATION VARIABLE CATEGORY "OTHER"
+
+## preserving category "-15" as "other" education, 
+# we recode value -15 to value "2" (unused) to prevent treating -15 as missing value further down in the pipeline
+
+H_elsa_w1$raeduc_e <- ifelse(H_elsa_w1$raeduc_e == -15, 2,H_elsa_w1$raeduc_e)
+H_elsa_w4_6$raeduc_e <- ifelse(H_elsa_w4_6$raeduc_e == -15, 2,H_elsa_w4_6$raeduc_e)
+
+
+###### clearing missingness codes (values less than 0) from pain vars:
+ssupport6_items<- c(paste0("r",4:6,"sustdfe"), 
+            paste0("r",4:6,"srely"), 
+            paste0("r",4:6,"sopenup"), 
+            paste0("r",4:6,"scritze"), 
+            paste0("r",4:6,"sletdow"), 
+            paste0("r",4:6,"sgetnev"))
+
+col_with_NA<-c(painVars, painBin,hepagVars,CRPVars,ssupport6_items,DemoVars,deprVars,PActVars)
+
+H_elsa_w4_6<-H_elsa_w4_6 %>%
+  mutate(across(all_of(col_with_NA), ~if_else(. < 0, NA_real_, .)))
+
+H_elsa_w1<-H_elsa_w1 %>%
+  mutate(across(all_of(col_with_NA), ~if_else(. < 0, NA_real_, .)))
+
+```
+
+
+# DERIVED VARIABLES
+
+## Chronic pain Classification
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+######################################################################
+## CHRONIC PAIN CLASSIFICATION
+######################################################################
+
+H_elsa_w4_6$r4painchr <- chronic_pain_var(H_elsa_w4_6, "r4painfr", "r4hepag", "r4painlv")
+H_elsa_w4_6$r5painchr <- chronic_pain_var(H_elsa_w4_6, "r5painfr", "r5hepag", "r5painlv")
+H_elsa_w4_6$r6painchr <- chronic_pain_var(H_elsa_w4_6, "r6painfr", "r6hepag", "r6painlv")
+  
+
+#table(H_elsa_w4_6$r4painchr, useNA = "ifany") %>% addmargins()
+#table(H_elsa_w4_6$r5painchr, useNA = "ifany") %>% addmargins()
+#table(H_elsa_w4_6$r5painfr,H_elsa_w4_6$r5painlv, useNA = "ifany") %>% addmargins()
+
+# Function to create summary table for a wave
+create_CPsummary(H_elsa_w4_6, "r4painchr", "Wave 4")
+create_CPsummary(H_elsa_w4_6, "r5painchr", "Wave 5")
+create_CPsummary(H_elsa_w4_6, "r6painchr", "Wave 6")
+
+chronicPAINvars<-c("r4painchr","r5painchr","r6painchr")
+
+### creating a binary variable
+# pain severity (for those with pain):
+# I am collapsing "moderate" and "severe" because of clinical importance and
+# to lower the number of categories that the LTA will have to handle.
+# I noticed that too many categories could lead to:
+# 1. sparse contingency tables, 
+# 2. difficult interpretation of models
+# 3. potentially unstable solutions with large SE
+
+# For those without pain, set to two levels: 
+# "No pain or mild pain" (0~ 0|1); "moderate or severe pain" (1~2|3)
+H_elsa_w4_6<-H_elsa_w4_6 %>% mutate(r4painsev = case_when(r4painfr <  0 ~ NA_real_,
+                                                          r4painfr == 0 ~ 0,
+                                                          r4painlv >= 2 ~ 1,
+                                                          r4painlv >  0 ~ 0,
+                                                          TRUE ~ NA_real_),
+                                    r5painsev = case_when(r5painfr <  0 ~ NA_real_,
+                                                          r5painfr == 0 ~ 0,
+                                                          r5painlv >= 2 ~ 1,
+                                                          r5painlv >  0 ~ 0,
+                                                          TRUE ~ NA_real_),
+                                    r6painsev = case_when(r6painfr <  0 ~ NA_real_,
+                                                          r6painfr == 0 ~ 0,
+                                                          r6painlv >= 2 ~ 1,
+                                                          r6painlv >  0 ~ 0,
+                                                          TRUE ~ NA_real_),
+  
+)
+
+#table(H_elsa_w4_6$r4painchr,H_elsa_w4_6$r4painsev, useNA = "ifany") %>% addmargins()
+#table(H_elsa_w4_6$r5painchr,H_elsa_w4_6$r5painsev, useNA = "ifany") %>% addmargins()
+#table(H_elsa_w4_6$r6painchr,H_elsa_w4_6$r6painsev, useNA = "ifany") %>% addmargins()
+
+
+```
+
+
+## PHYSICAL ACTIVITY
+Participants were asked to self-report the frequency of their participation in sports or activities that were vigorous, moderately energetic and mildly energetic (more than once a week, once a week, one to three times a month, hardly ever or never). Physical activity was then categorised into four groups in accordance with previous literature [@dhalwani2016long,malkowski2023socioeconomic]: 
+(1) inactive (no activity on a weekly basis); 
+(2) only mild activity at least once per week; 
+(3) at least moderate but no vigorous activity at least once per week; and 
+(4) vigorous activity at least once per week.
+```{r}
+# rwvgactx_e - Vigorous Act
+# rwmdactx_e - Moderately energetic Act
+# rwltactx_e - Mildly energetic Act
+#
+# The above indicate the frequency of vigorous, moderately energetic, or mildly energetic physical activity, respectively. coded as:
+
+# -18 : Refused item 
+# -4 Don't know
+# 2 more than once a week
+# 3 once a week
+# 4 one to three times a month
+# 5 hardly ever or never
+
+# Create new physical activity category variable
+H_elsa_w4_6<-create_PA_categories(H_elsa_w4_6,wave = 4)
+H_elsa_w4_6<-create_PA_categories(H_elsa_w4_6,wave = 5) 
+H_elsa_w4_6<-create_PA_categories(H_elsa_w4_6,wave = 6)
+
+```
+
+
+
+## Depression 8 item
+Depression is strongly linked with chronic pain [@mills2019chronic]
+
+The CES-D-8 is a valid and reliable measure of depressive symptoms in community-dwelling older people, [@briggs2018validation] and a score of >=3 is generally accepted as threshold for caseness[@turvey1999revised,white2016duration].
+
+### Depression latent score
+```{r,echo=TRUE,eval=FALSE, warning=FALSE,message=FALSE,error=FALSE,results='hide'}
+library(lavaan)
+library(semTools)
+
+
+######################################################
+##### CONFIRMATORY FACTOR ANALYSIS: wave 4 
+#######################################################
+
+CESD_8itm.W4<-'Lv1   =~ r4depres + r4effort + r4sleepr + r4whappy + r4flone + r4fsad + r4going + r4enlife'
+
+CESD_8itm.W4fit<- cfa(model = CESD_8itm.W4, 
+                     data = H_elsa_w4_6,
+                     ordered = TRUE, # polychoric correlations for the binary variables
+                     std.lv = TRUE,
+                     auto.fix.first = FALSE,
+                     estimator = "WLSM", #  WLSM or alternatively WLSMV
+                     missing = "pairwise" # this way I mainteing the NA where appropriate in the lavPredict output
+                     )
+                                 
+
+
+r<-residuals(CESD_8itm.W4fit, type = "cor")$cov %>% as.table %>% round(2)
+r[abs(r) < 0.1] <- "-"
+
+#r
+
+## Diagnostic tool to explore residual correlations or other potential sources of bias in the model
+#m<-modificationindices(ALL.one.factor.Fit)
+
+#summary(CESD_8itm.W4fit, fit.measures = T, rsquare=T)
+
+#######################################################
+##### END CONFIRMATORY FACTOR ANALYSIS: wave 4
+#######################################################
+
+#######################################################
+###### MEASUREMENT INVARIANCE TESTING
+######################################################
+
+## define the 3 latent factors that are actually the same factor (FU) measured overtime
+longFacNames <- list(FU = c(#"CESD_w3",
+                            "CESD_w4","CESD_w5","CESD_w6"))
+
+
+# Model specification with metric invariance constraints
+free_model <- '
+  # Define latent factors for each wave
+ # CESD_w3 =~ r3depres + r3effort + r3sleepr + r3whappy + r3flone + r3fsad + r3going + r3enlife
+  CESD_w4 =~ r4depres + r4effort + r4sleepr + r4whappy + r4flone + r4fsad + r4going + r4enlife
+  CESD_w5 =~ r5depres + r5effort + r5sleepr + r5whappy + r5flone + r5fsad + r5going + r5enlife  
+  CESD_w6 =~ r6depres + r6effort + r6sleepr + r6whappy + r6flone + r6fsad + r6going + r6enlife
+
+  # Allow latent factor residuals to correlate across waves
+#  CESD_w3 ~~ CESD_w4
+#  CESD_w3 ~~ CESD_w5
+#  CESD_w3 ~~ CESD_w6
+  CESD_w4 ~~ CESD_w5
+  CESD_w4 ~~ CESD_w6
+  CESD_w5 ~~ CESD_w6
+'
+
+fit_free <- measEq.syntax(configural.model = free_model,
+                               data = H_elsa_w4_6,
+                               ordered = TRUE,
+                               parameterization = "theta", # theta parameterization (for ordinal data)
+                               ID.fac = "std.lv", 
+                               longFacNames = longFacNames,
+                               fixed.x = TRUE,
+                               return.fit = TRUE,
+                               missing = "pairwise" # this way I mainteing the NA where appropriate in the lavPredict output
+                                                    # allows the model fitting to retain the maximum amount of observed data 
+                                                    # per covariance element, rather than dropping entire rows if any wave/item 
+                                                    # has missingness, while still accounting for NA in predictions
+                          )
+summary(fit_free, standardized = T, fit.measures = T)
+
+
+fit_metric <- measEq.syntax(configural.model = free_model,
+                               data = H_elsa_w4_6,
+                               ordered = TRUE,
+                               parameterization = "theta",
+                               ID.fac = "std.lv", 
+                               longFacNames = longFacNames,
+                               long.equal = c("loadings"),
+                               fixed.x = TRUE,
+                               return.fit = TRUE,
+                               missing = "pairwise" # this way I mainteing the NA where appropriate in the lavPredict output
+                          )
+summary(fit_metric, standardized = T, fit.measures = T)
+
+anova(fit_free, fit_metric)
+
+#summary(compareFit(fit_free, fit_metric))
+#######################################################
+###### END OF MEASUREMENT INVARIANCE TESTING
+######################################################
+timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
+#saveRDS(fit_free,paste0(paper1_MODELS_rds_path,"cesd_lat_free_fit",timestamp_suffix,".rds"))
+#saveRDS(fit_metric,paste0(paper1_MODELS_rds_path,"cesd_lat_metricInv_fit",timestamp_suffix,".rds"))
+```
+
+
+```{r}
+
+#fit_free<-readRDS(paste0(paper1_MODELS_rds_path,"cesd_lat_free_fit20260313_160306.rds"))
+fit_metric<-readRDS(paste0(paper1_MODELS_rds_path,"cesd_lat_metricInv_fit20260313_160306.rds"))
+
+cesd_scores <- lavPredict(fit_metric, 
+                        newdata = H_elsa_w4_6, 
+                        type = "lv")
+
+#H_elsa_w4_6$r3cesd_lat<-cesd_scores[,1]
+H_elsa_w4_6$r4cesd_lat<-cesd_scores[,1]
+H_elsa_w4_6$r4cesd_lat %>% hist
+H_elsa_w4_6$r5cesd_lat<-cesd_scores[,2]
+H_elsa_w4_6$r5cesd_lat %>% hist
+H_elsa_w4_6$r6cesd_lat<-cesd_scores[,3]
+H_elsa_w4_6$r6cesd_lat %>% hist
+```
+
+
+
+### Depression categorical scale
+```{r}
+###########################################
+# CREATE A categorical variable for Depression
+
+H_elsa_w4_6 <- H_elsa_w4_6 %>% 
+                    mutate(r4cesd8_cat = case_when(
+                                      r4cesd == 0 ~ "0 depr. signs",
+                                      r4cesd == 1 ~ "1 depr. signs",
+                                      r4cesd == 2 ~ "2 depr. signs",
+                                      r4cesd >= 3 ~ "3 or more",
+                                      TRUE ~ NA_character_),
+                           r5cesd8_cat = case_when(
+                                      r5cesd == 0 ~ "0 depr. signs",
+                                      r5cesd == 1 ~ "1 depr. signs",
+                                      r5cesd == 2 ~ "2 depr. signs",
+                                      r5cesd >= 3 ~ "3 or more",
+                                      TRUE ~ NA_character_),
+                           r6cesd8_cat = case_when(
+                                      r6cesd == 0 ~ "0 depr. signs",
+                                      r6cesd == 1 ~ "1 depr. signs",
+                                      r6cesd == 2 ~ "2 depr. signs",
+                                      r6cesd >= 3 ~ "3 or more",
+                                      TRUE ~ NA_character_)
+                           )
+```
+
+## MLTC
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+###############################################################
+###############################################################
+#  CREATE MLTC VARIABLE
+###############################################################
+###############################################################
+### MLTC: count of doctor-diagnosed illnesses [@poole2020combined]):
+  # rXangine | rXhrtatte: CHD (angina | myocardial infarction)
+  # rXstroke: stroke
+  # rXdiabe: diabetes/high blood glucose
+  # rXlunge: pulmonary disease (chronic bronchitis, emphysema)
+  # rXarthre:   - arthritis (osteoarthritis | rheumatoid | arthritis type not specified)
+  # rXcancre: cancer
+
+# additional categories used in [@torres2016wealth]
+  # rXparkine: Parkinson
+  # cardiovascular diseases (
+  #  rxhibpe   : high blood pressure, 
+  #  rXangine  : angina, 
+  #  rXhrtatte : heart attack, 
+  #  rXconhrtfe: heart failure, 
+  #  rXhrtmre  : heart murmur 
+  #  rXhrtrhme : heart rhythm)
+
+# additional categories used in [@simpson2023eliciting]:
+  # rxhibpe    : hypertension | high blood pressure
+  # rXasthmae  : asthma, 
+  # rXpsyche   : mental health disorders (diagnosed: depression, anxiety, emotional problems, hallucinations, schizophrenia, psychosis) 
+  # rxalzhe    : Alzheimer's disease, 
+  # rXdemene   : dementia 
+
+
+############################# poole2020 definition 
+### MLTC: count of doctor-diagnosed illnesses [@poole2020combined] with the addition of ):
+
+H_elsa_w1 <- create_MLTC_variable(
+  H_elsa_w1, 
+  "r1MLTC",
+  c("r1angine", "r1stroke", "r1diabe", "r1lunge", "r1arthre", "r1cancre","r1psyche")
+)
+
+
+H_elsa_w4_6 <- create_MLTC_variable(
+  H_elsa_w4_6, 
+  "r4MLTC",
+  c("r4angine", "r4stroke", "r4diabe", "r4lunge", "r4arthre", "r4cancre","r4psyche")
+)
+
+H_elsa_w4_6 <- create_MLTC_variable(
+  H_elsa_w4_6, 
+  "r5MLTC",
+  c("r5angine", "r5stroke", "r5diabe", "r5lunge", "r5arthre", "r5cancre","r5psyche")
+)
+
+H_elsa_w4_6 <- create_MLTC_variable(
+  H_elsa_w4_6, 
+  "r6MLTC",
+  c("r6angine", "r6stroke", "r6diabe", "r6lunge", "r6arthre", "r6cancre","r6psyche")
+)
+```
+
+## N of Pain Locations
+
+```{r}
+loc_varnames <- c("hepawba", "hepawhi", "hepawkn", "hepawfe", "hepawmo", "hepawot", "hepawal")
+
+
+# Create for wave 4
+wave4_vars <- paste0("r4", loc_varnames)
+H_elsa_w4_6 <- create_pain_locations_count(H_elsa_w4_6, "r4pain_locN", wave4_vars)
+
+# Create for waves 5 and 6
+wave5_vars <- paste0("r5", loc_varnames)
+H_elsa_w4_6 <- create_pain_locations_count(H_elsa_w4_6, "r5pain_locN", wave5_vars)
+
+wave6_vars <- paste0("r6", loc_varnames)
+H_elsa_w4_6 <- create_pain_locations_count(H_elsa_w4_6, "r6pain_locN", wave6_vars)
+
+```
+
+### Compoasite Chronic pain state + location
+
+0 NO PAIN
+1 ACUTE PAIN
+3 CHRONIC
+4 CHRONIC 3+ locations
+
+```{r}
+H_elsa_w4_6<- H_elsa_w4_6%>% mutate(
+                            r4painchr_ext = case_when(
+                                    r4painchr == 0 ~ 0,
+                                    r4painchr == 1 & r4pain_locN_cat == "2 or less location"  ~ 1,
+                                    r4painchr == 2 & r4pain_locN_cat == "2 or less location"  ~ 2,
+                                    r4painchr == 2 & r4pain_locN_cat == "3 or more locations" ~ 3,
+                                    TRUE ~ NA_real_
+                                    )%>% factor(levels = 0:3, 
+                                                labels = c("No pain", 
+                                                           "Acute pain", #"Acute widespread",
+                                                           "Chronic pain", 
+                                                           "Chronic 3+locations")),
+                            r5painchr_ext = case_when(
+                                    r5painchr == 0 ~ 0,
+                                    r5painchr == 1 & r5pain_locN_cat == "2 or less location"  ~ 1,
+                                    r5painchr == 2 & r5pain_locN_cat == "2 or less location"  ~ 2,
+                                    r5painchr == 2 & r5pain_locN_cat == "3 or more locations" ~ 3,
+                                    TRUE ~ NA_real_
+                                    )%>% factor(levels = 0:3, 
+                                                labels = c("No pain", 
+                                                           "Acute pain", #"Acute widespread",
+                                                           "Chronic pain", 
+                                                           "Chronic 3+locations")),,
+                            r6painchr_ext = case_when(
+                                    r6painchr == 0 ~ 0,
+                                    r6painchr == 1 & r6pain_locN_cat == "2 or less location"  ~ 1,
+                                    r6painchr == 2 & r6pain_locN_cat == "2 or less location"  ~ 2,
+                                    r6painchr == 2 & r6pain_locN_cat == "3 or more locations" ~ 3,
+                                    TRUE ~ NA_real_
+                                    )%>% factor(levels = 0:3, 
+                                                labels = c("No pain", 
+                                                           "Acute pain", #"Acute widespread",
+                                                           "Chronic pain", 
+                                                           "Chronic 3+locations")),
+                            )
+
+```
+
+
+## Partnership classification
+# we create a partnership variable:
+responded is categorised as having a partner if any of the following is true:
+* r4mstat == 1 ("married")
+* r4mstat == 4 ("partnered")
+* r4mpart == 1 ("whether the respondent partnership is implied")
+* r4ssupport >0 ("partnership implied because the respondent reported the Marital strain experienced with their partner")
+
+```{r}
+H_elsa_w4_6 <- H_elsa_w4_6 %>%
+  mutate(
+    r4partner = case_when(r4mpart == 1 | r4mstat == 1 | r4ssupport6>=0 ~ 1 ,
+                          TRUE ~ 0),
+    r5partner = case_when(r5mpart == 1 | r5mstat == 1 | r5ssupport6>=0 ~ 1 ,
+                          TRUE ~ 0),
+    r6partner = case_when(r6mpart == 1 | r6mstat == 1 | r6ssupport6>=0 ~ 1 ,
+                          TRUE ~ 0)
+    )
+
+H_elsa_w1 <- H_elsa_w1 %>%
+  mutate(
+    r1partner = case_when(r1mpart == 1 | r1mstat == 1 | r1ssupport6>=0 ~ 1 ,
+                          TRUE ~ 0)
+    )
+```
+
+## excluding respondent with all data missing
+
+```{r}
+
+H_elsa_w4_6$dropout_status <- create_dropout_variable(H_elsa_w4_6)
+
+# Create a summary table of dropout status
+dropout_table <- table(H_elsa_w4_6$dropout_status, useNA = "ifany")
+dropout_df <- as.data.frame(dropout_table)
+names(dropout_df) <- c("Dropout Status", "Frequency")
+dropout_df$Percentage <- round(100 * dropout_df$Frequency / sum(dropout_df$Frequency), 2)
+
+# Add labels for better readability
+dropout_df$`Dropout Status` <- factor(dropout_df$`Dropout Status`, 
+                                      levels = c("-3", 
+                                                 "-2", 
+                                                 "-1", 
+                                                 "0", 
+                                                 "5", 
+                                                 "6", 
+                                                 "NA"),
+                                      labels = c("All waves missing", 
+                                                 "Intermittent missing", 
+                                                 "Missing with return",
+                                                 "Complete response",
+                                                 "Dropout at Wave 5",
+                                                 "Dropout at Wave 6",
+                                                 "Missing"))
+
+print(dropout_df)
+
+
+
+## exclude participants that dropped out at wave 5 without return
+
+H_elsa_w4_6<-H_elsa_w4_6 %>% filter(dropout_status !=5) # n = 8656
+
+
+#filter cases where proxy was never 1 (all zeroes) OR was 1 in only 1 wave
+H_elsa_w4_6<-H_elsa_w4_6 %>%  filter((r4proxy == 0 & r5proxy == 0 & r6proxy == 0) | 
+         (r4proxy + r5proxy + r6proxy) == 1) # 8014
+
+
+nrow(H_elsa_w4_6)
+
+```
+
+
+```{r eval=F}
+saveRDS(H_elsa_w1, paste0(paper1_rds_path,"H_elsa_w1.rds")) 
+saveRDS(H_elsa_w4_6, paste0(paper1_rds_path,"H_elsa_w4_6.rds")) 
+
+```
+
+
+
+
+
+

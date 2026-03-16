@@ -1,0 +1,359 @@
+---
+title: "Derived Variables"
+author: "Diego Vitali"
+output: 
+  github_document:
+    toc: True
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+editor_options: 
+  markdown: 
+    wrap: 72
+bibliography: references.bib
+
+---
+```{r setup, eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(NbClust)
+library(cluster)
+library(readr)
+source("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/Sources/Paper1_func.R")
+
+Imputed_datasets<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/mice_imputationlong_rev4.rds")
+paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
+paper1_MODELS_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/LatGrCrv_mod/Pain - trajectory profiling/model_fits/"
+
+# refreshments: 3, 4, 6, 7, 9 and 10
+
+# Nurse Visits: 2,4,6,8,9
+
+```
+
+# Propagate derived variables 
+Here we set up our derived variables and we propagate in all imputed datasets
+
+# Import imputations
+```{r echo=FALSE}
+
+
+library(mice)
+imputed.df<-complete(Imputed_datasets,1)
+```
+incomplete variables that were imputed:
+* "painlv", 
+* "painchr_ext", 
+* "shlt", 
+* "lnlys",
+* "ssupport6_log1p", 
+* "nettotw_bu_s_log"
+
+## Derived variables
+
+
+
+
+### Health impact scores 
+Impact is a derived variable based on lvimp_shifted and this was a complete variable
+
+We use wave 4 as the baseline to get the reference medoid from this
+
+```{r,echo=FALSE, eval = F, warning=FALSE,message=FALSE,error=FALSE}
+
+#Use first wave as reference (first wave)
+imputed.df4<-imputed.df%>%filter(wave == 4)
+nonzero_data_ref <- na.omit(subset(imputed.df4, lvimp_shifted > 0.1)$lvimp_shifted)
+
+# Perform clustering on reference wave
+#nb <- NbClust(data = matrix(nonzero_data_ref), 
+#              distance = "manhattan",
+#              min.nc = 2, max.nc = 8, 
+#              method = "average")
+
+
+# Then we use PAM (Partitioning Around Medoids) instead of kmeans which still assumes normality
+# PAM works with manhattan distance. This way we get the medoids (equivalent of centroids with kmeans)
+library(cluster)
+# Using PAM over k-means because PAM:
+#         uses actual data points as medioids 
+#         Works well with Manhattan distance 
+#         Doesn't assume normality like k-means does
+n_clusters<-2
+pam_result <- pam(nonzero_data_ref, k = n_clusters, metric = "manhattan")
+pam_result$medoids   # cluster medoids
+pam_result$clustering %>% table  # cluster assignments
+summary(pam_result)
+sil <- silhouette(pam_result$clustering, dist(nonzero_data_ref, method = "manhattan"))
+plot(sil, main = "Silhouette Plot for PAM Clustering", 
+     col = 1:n_clusters, border = NA)
+
+
+
+set.seed(200720)
+
+n_boot <- 2000
+# Get optimal number of clusters and centroids from wave 2
+# Nb clust and our theory about these cluster to us to select 3 clusters
+n_clusters <- 2
+
+library(fpc)
+## define the pam function to be used by clusterboot (as per documentation)
+pamCBI <- function(x, k) {
+  pamfit <- pam(x, k, metric = "manhattan")
+  partition <- pamfit$clustering
+  nclusters <- length(unique(partition))
+  clusterlist <- lapply(1:nclusters, function(i) partition == i)
+  return(list(result = pamfit,
+              nc = nclusters,
+              clusterlist = clusterlist,
+              partition = partition,
+              clustermethod = "pam"))
+}
+
+ImpactBootstability_results <- clusterboot(nonzero_data_ref,
+                          clustermethod = pamCBI,
+                          k = n_clusters,
+                          B = n_boot,          # number of bootstrap samples
+                          seed = 200720)     # for reproducibility
+
+saveRDS(ImpactBootstability_results,paste0(paper1_MODELS_rds_path,"Impact_clustStability_boot2000.rds"))
+
+```
+
+```{r,echo=FALSE, eval = T, warning=FALSE,message=FALSE,error=FALSE}
+
+ImpactBootstability_results<-readRDS(paste0(paper1_MODELS_rds_path,"Impact_clustStability_boot2000.rds"))
+
+# Print bootstrap mean Jaccard similarity (cluster stability)
+# Hennig, C. (2007) Cluster-wise assessment of cluster stability. Computational Statistics and Data Analysis, 52, 258-271.ara
+cat("Bootstrap mean Jaccard similarity (cluster stability) Hennig, C. (2007)")
+cat(sprintf("  Cluster 1 Stability: %.4f\n", ImpactBootstability_results$bootmean[1]))
+cat(sprintf("  Cluster 2 Stability: %.4f\n", ImpactBootstability_results$bootmean[2]))
+ImpactBootstability_results$result
+imputed.df4<-imputed.df%>%filter(wave == 4)
+nonzero_data_ref <- na.omit(subset(imputed.df4, lvimp_shifted > 0.1)$lvimp_shifted)
+pam_result <- pam(nonzero_data_ref, k = 2, metric = "manhattan")
+pam_result$medoids   # cluster medoids
+
+ref_centers_IMPACT <- sort(pam_result$medoids)
+
+# Thanks to measurement invariance, we can use the w4 medoids as a 
+# reference to parametrise all waves in all mids objects
+
+# Apply to your mice object
+updated_mids <- IMPACT_parametrisation_to_mice_objs(Imputed_datasets, ref_centers_IMPACT)
+
+imputed.df123<-complete(updated_mids,1) %>% filter(wave == 4)
+
+imputed.df123 %>% select(lvimp_shifted_cat) %>% table
+
+```
+
+### Net total Wealth Quintiles
+
+We wave 4 quantile breaks calculated from one reference dataset to ensure consistent categorization across all imputations
+```{r, eval=T, echo=FALSE}
+# Calculate wave 4 quintile breaks from complete case or first imputation
+data_long <- complete(updated_mids, 1)
+
+global_min <- -436410
+
+
+cutpoints <- quantile(data_long$nettotw_bu_s_original, 
+                     probs = seq(0, 1, 0.2), 
+                     na.rm = TRUE)
+print(cutpoints)
+
+quintile_breaks_log <- quantile(data_long$nettotw_bu_s_log, # pooled quintile repartition
+                                  probs = seq(0, 1, by = 0.2), na.rm = TRUE)
+
+
+
+updated_mids <- add_wealth_quintiles_to_mice(updated_mids, 
+                                            quintile_breaks_log)
+
+
+```
+
+### Marital support/strain
+
+
+    "sustdfe" = "Partner understands the way they feel",
+    "srely" = "can rely on Partner for a serious problem", 
+    "sopenup" = "can open up their worries to Partner",
+    "scritze" = "Partner criticizes r",
+    "sletdow" = "Partner let r down when counting on",
+    "sgetnev" = "Partner gets on r's nerves"
+
+the total score here is log1p() transformed to improve its skewed distribution. The total score is monotonic with greater scores meaning more strain the supportiveness of the relationship
+
+### Lonelyness bin
+
+```{r}
+data_long <- complete(updated_mids, 1)
+data_w4<-data_long%>% filter(wave == 4)
+data_w5<-data_long%>% filter(wave == 5)
+data_w6<-data_long%>% filter(wave == 6)
+
+cluster_wave <- function(data, wave_num) {
+ # PAM clustering
+  pam_result <- pam(data$lnlys, k = n_clusters, metric = "manhattan")
+  
+  # Medoids
+  cat("\nCluster medoids:\n")
+  print(pam_result$medoids)
+  
+  # Cluster sizes
+  cat("\nCluster sizes:\n")
+  print(table(pam_result$clustering))
+  
+  # Silhouette analysis
+  sil <- silhouette(pam_result$clustering, dist(data$lnlys, method = "manhattan"))
+  
+  # Plot silhouette
+  plot(sil, main = paste("Silhouette Plot - Wave", wave_num), 
+       col = 1:n_clusters, border = NA)
+  
+  # Average silhouette width
+  cat("\nAverage silhouette width:", mean(sil[, 3]), "\n")
+  
+  # Return results
+  return(list(
+    wave = wave_num,
+    pam_result = pam_result,
+    silhouette = sil,
+    medoids = pam_result$medoids,
+    cluster_sizes = table(pam_result$clustering),
+    avg_sil_width = mean(sil[, 3])
+  ))
+}
+
+# Run clustering for each wave
+results_w4 <- cluster_wave(data_w4, 4)
+results_w5 <- cluster_wave(data_w5, 5)
+results_w6 <- cluster_wave(data_w6, 6)
+
+comparison <- data.frame(
+  Wave = c(4, 5, 6),
+  Medoid_1 = c(results_w4$medoids[1], results_w5$medoids[1], results_w6$medoids[1]),
+  Medoid_2 = c(results_w4$medoids[2], results_w5$medoids[2], results_w6$medoids[2]),
+  Avg_Silhouette = c(results_w4$avg_sil_width, results_w5$avg_sil_width, results_w6$avg_sil_width),
+  Cluster1_Size = c(results_w4$cluster_sizes[1], results_w5$cluster_sizes[1], results_w6$cluster_sizes[1]),
+  Cluster2_Size = c(results_w4$cluster_sizes[2], results_w5$cluster_sizes[2], results_w6$cluster_sizes[2])
+)
+
+### thresholds are stable, 
+
+apply_loneliness_clustering <- function(mids_object, ref_medoids = c(1.00, 1.75)) {
+  
+  # Extract long format data
+  long_data <- complete(mids_object, action = "long", include = TRUE)
+  
+  # Apply clustering
+  processed_long <- long_data %>%
+    mutate(
+      # Assign to nearest medoid
+      lnlys_cat = sapply(lnlys, function(x) {
+        if(is.na(x)) return(NA_integer_)
+        which.min(abs(x - ref_medoids))
+      }),
+      
+      # Create factor label
+      loneliness_group = factor(lnlys_cat, 
+                               levels = 1:2, 
+                               labels = c("Low", "High"))
+    )
+  
+  # Convert back to mids object
+  new_mids <- as.mids(processed_long, .imp = ".imp", .id = ".id")
+  
+  return(new_mids)
+}
+
+# Apply to your mids object
+updated_mids <- apply_loneliness_clustering(updated_mids, ref_medoids = c(1.00, 1.75))
+
+
+# Verify the clustering worked across imputations
+#check_clustering <- complete(updated_mids_with_clusters, action = "long", include = F)
+
+# Check distribution by wave and imputation
+# check_clustering %>%
+#   group_by(.imp, wave, loneliness_group) %>%
+#   summarise(
+#     n = n(),
+#     mean_lnlys = mean(lnlys, na.rm = TRUE),
+#     max_lnlys = max(lnlys, na.rm = TRUE),
+#     min_lnlys = min(lnlys, na.rm = TRUE),
+#     .groups = "drop"
+#   ) %>%
+#   print(n = 30)
+
+# Verify no label switching across imputations
+# check_clustering %>%
+#   group_by(.imp, loneliness_group) %>%
+#   summarise(
+#     mean_lnlys = mean(lnlys, na.rm = TRUE),
+#     .groups = "drop"
+#   ) %>%
+#   arrange(loneliness_group,mean_lnlys,.imp ) %>% print(n = 100)
+
+
+```
+
+```{r eval = T, echo=FALSE }
+df_plot<-imputed.df %>% filter(wave == 4 & !is.na(ssupport6_log1p))
+
+
+ggplot(df_plot, aes(x=ssupport6_log1p)) + 
+    geom_histogram(aes(y=..density..),      # Histogram with density instead of count on y-axis
+                   colour="black", fill="white") +
+    #geom_density(alpha=.2, fill="#FF6666")+  # Overlay with transparent density plot
+    geom_vline(aes(xintercept=mean(ssupport6_log1p, na.rm=T)), color="red", linetype="dashed", size=1) +
+  labs(
+    title = paste("Distribution of ssupport6_log1p with Mean Line (N =", nrow(df_plot),")"),
+    caption = "Data source: ELSA, wave 4, SSupport score for respondents with partner"
+  ) +
+  theme_minimal()
+
+```
+
+
+### predictors semplification
+
+We create two baseline Variables(Wave 4):
+
+We Transform categorical and ordinal variables into binary variables to ease LTA model complexity and prevent instability or separation. For the same reason we set the reference category (0) so that the most endorsed binary category is the refence category.
+
+* MLTC_BIN: Dichotomizes long-term conditions (≤2 vs >2)
+* Sex_BIN: Converts gender coding to "Female"/"Male"
+* partner: having a partner is coded as zero 
+* painchr_ext: Recodes pain scale to start from 0 (required for LME/ST modeling)
+
+
+* lnlys3_bin: is not parametrised for its poor sensitivity and specificity when parametrised  using the common threshold [see this ](https://pmc.ncbi.nlm.nih.gov/articles/PMC11578901/)
+
+
+
+
+```{r, eval=T, echo=FALSE}
+
+# This function takes a mids (multiply imputed datasets) object and creates 
+# binary/categorical variables are labeled plus the indicators for the latent MM 
+# are set as integer as required by lmest()
+
+updated_mids <- label_variables_for_LTA(updated_mids)
+
+#saveRDS(updated_mids, "c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/updated_midslong.rds")
+#updated_mids<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/updated_midslong.rds")
+
+```
+
+
+## Write mids to rds
+```{r, eval=FALSE, echo=FALSE}
+
+saveRDS(updated_mids, paste0(paper1_rds_path,"mice_updatedMIDS_rev4.rds"))
+
+
+  ```

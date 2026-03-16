@@ -1,0 +1,1847 @@
+---
+title: "Change of Pain classes"
+author: "Diego Vitali"
+output: 
+  github_document:
+    toc: True
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+editor_options: 
+  markdown: 
+    wrap: 72
+bibliography: references.bib
+---
+
+```{r setup, eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(readr)
+library(patchwork)
+library(GGally)
+
+
+library(mice)
+library(miceadds)
+
+library(parallel)
+library(future)
+library(future.apply)
+library(LMest)
+
+library(knitr)
+
+library(dagitty)
+library(ggdag)
+library(kableExtra)
+
+
+source("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/Sources/Paper1_func.R")
+paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
+paper1_MODELS_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/LatGrCrv_mod/Pain - trajectory profiling/model_fits/"
+
+# refreshments: 3, 4, 6, 7, 9 and 10
+
+# Nurse Visits: 2,4,6,8,9
+
+H_elsa_w4_6<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/H_elsa_w4_6.rds")
+#H_elsa_w1<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/H_elsa_w1.rds")
+
+## imputed dataset
+updated_mids<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/mice_updatedMIDS_rev4.rds")
+
+```
+
+#Predictors list
+
+```{r echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+LTAdata_long <- complete(updated_mids,1)
+
+LTAdata_long<- LTAdata_long %>% mutate(
+                                 ssupport6 = expm1(ssupport6_log1p),
+                                 ssupport6_cat= case_when(
+                                   partner == "No-partner" ~ "No-partner",
+                                   ssupport6 <= 1.5 ~ "above median support",
+                                   ssupport6 > 1.5 ~ "below median support",
+                                   TRUE ~ NA_character_
+                                 ) %>% factor(levels = c("No-partner", 
+                                                         "below median support",
+                                                         "above median support"))
+                                 )
+
+
+
+Variables<-c(
+            # ID variable
+               "idauniq",                # integer
+            # TIME variable
+               "time",                   # Integer: 0 = Wave 4
+            # TIME INVARIANT PREDICTORS
+               "raagey_z",               # Age stnd 
+               "Sex_BIN",                # binary: Female, male
+               "raeduc_e",
+            # TIME-VARYING PREDICTORS
+               "wealthQ_bin",           # binary: "Least deprived Qs"; "Most Deprived Q"
+               "MLTC",                   # numeric (count)
+               "cesd_lat_shifted",       # numeric Depression score
+               "loneliness_group",       # binary: "Low, high loneliness"
+               "partner",
+               "ssupport6_cat",          # categorical (no partner, high support, low support)
+            # OUTCOME'S INDICATORS
+               "painchr_ext",            # Integer (ordered)
+               "lvimp_shifted_cat"#,     # Integer (ordered)
+               #"nettotw_bu_s_log"        # numeric
+            )
+
+LTAdata_long<-LTAdata_long %>% select(all_of(Variables))
+
+
+```
+
+
+
+# Check unbalanced binary predictors:
+
+Statical software often select the reference category alphabetically. This is not a problem when categories are balanced or we do not have a information that identify a group of answers as normative. The latter is the case for Wealth Quintile. In this case the most logical comparison would general be to compare against the most normative group which is that of ppl not in poverty, e.g.: compare being the 1st net total wealth quintile (most deprived quintile of the population) to being in any other better off quintile. 
+
+extreme imbalance in binary prediction (e.g. RACE_BIN is distributed as ~97% and only 3 % non-white). This imbalance  can cause model separation and these variables should be flagged for possible instability.
+
+```{r echo=FALSE}
+# Identify binary factor variables
+binary_factors <- names(LTAdata_long)[sapply(LTAdata_long, function(x) is.factor(x) && nlevels(x) == 2)]
+
+# Calculate proportion imbalance for each binray variables
+
+# we prepare an empty dataframe to examine the binary predictors variables
+imbalance_data <- data.frame(
+  variable = character(),
+  level1 = character(),
+  level2 = character(),
+  prop_level1 = numeric(),
+  prop_level2 = numeric(),
+  imbalance = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for(var in binary_factors) {
+  props <- prop.table(table(LTAdata_long[[var]]))
+  levels_var <- names(props)
+  
+  imbalance_data <- rbind(imbalance_data, data.frame(
+    variable = var,
+    level1 = levels_var[1],
+    level2 = levels_var[2],
+    prop_level1 = round(props[1],2),
+    prop_level2 = round(props[2],2),
+    imbalance = round(abs(props[1] - props[2]),2),  # Higher = more imbalanced
+    stringsAsFactors = FALSE
+  ))
+}
+
+# Sort by imbalance (most unbalanced first)
+imbalance_data <- imbalance_data[order(imbalance_data$imbalance, decreasing = TRUE), ]
+
+
+kable(imbalance_data, row.names = FALSE,caption = "Binary variables ordered by imbalance (most unbalanced first):")
+```
+
+
+# Confounding structure
+
+
+## DAG initial state probabilities
+
+Main Effect Effect:
+* Partnership status: This categorical variables compare three interpersonal-relationship status: 
+      a. No having a partner
+      b. below median support
+      c. above median support
+
+Confounders:
+* Sex
+* Age
+* MLTC BL
+* Education lv
+* Wealth (whether members of most deprived quintile)
+
+We also considered a  "direct effect" model which included Depression and Loneliness as correlated Covariates (not strictly confounders of initial probabilities)
+* Depression BL 
+* loneliness BL 
+
+```{r echo=FALSE}
+
+dag_init <- dagitty(init_prob_DAG) %>% 
+  tidy_dagitty()
+
+ggdag_status(dag_init, text = FALSE, use_labels = "name") +
+  scale_color_manual(
+    values = c("exposure" = "#2C7BB6", "outcome" = "#D7191C", "latent" = "gray70"),
+    guide = "none"
+  ) +
+  theme_dag_blank() +
+  labs(title = "DAG Initial State probabilities. \n main effects: Marital Strain and Partnership status -> Initial Health State probabilities",
+       caption = paste0("Structural Relationship: Partner Status -> Marital Strain"))
+
+init_adj_set<-adjustmentSets(dagitty(init_prob_DAG), c("Partnership Status BL"), "Initial Health State",effect = "total")
+
+print("The adjustment set for the TE of partner status and Marital strain on initial probabilities is:")
+init_adj_set
+
+
+```
+
+## DAG state transition probabilities
+
+Main Effect:
+* Partnership status: This categorical variables compare three interpersonal-relationship status: 
+      a. No having a partner
+      b. below median support
+      c. above median support
+
+Time-varying confounders:
+* Wealth (whether members of most deprived quintile)
+* MLTC
+
+Time-varying confounders/mediators:
+* Depression 
+* loneliness
+
+Time-invariant confounders
+* Sex
+* Age
+* Education (lv)
+
+
+```{r echo=FALSE}
+library(dagitty)
+library(ggdag)
+
+dag_trans <- dagitty(trans_prob_DAG) %>% 
+  tidy_dagitty()
+
+ggdag_status(dag_trans, text = FALSE, use_labels = "name") +
+  scale_color_manual(
+    values = c("exposure" = "#2C7BB6", "outcome" = "#D7191C", "latent" = "gray70"),
+    guide = "none"
+  ) +
+  theme_dag_blank() +
+  labs(title = "DAG State Transition probabilities. \n main effects: Partnership & support quality -> State Transition probabilities",
+       caption = paste0("Partnership status: no partner, supportive partner, less supportive partner"))
+
+
+trans_adj_set<-adjustmentSets(dagitty(trans_prob_DAG), c("Partnership Status"), "Health State Transitions", effect = "direct" )
+
+paste("the adjustment set for the DE of partner status and Marital strain on transition probabilities is:")
+trans_adj_set
+```
+
+# LTA Formulas
+
+In this Latent Transition Analysis (LTA) we apply a Latent Markov
+model with time-varying categorical indicators to empirically determine
+latent Markov states, together with the probability of subjects to move between
+these unobserved states over time. 
+
+The model captures both the initial states probability distribution and the 
+probability of the temporal transitions between latent states. Both components 
+are then parametrised with multinomial logistic regression via which we determine 
+the effects of our covariates of interest.
+
+In order to build our LTA formula we can use lmestFormula() which allows us to specify
+the model to be estimated by simply listing:
+
+* latent state indicators
+* Initial probability predictors
+* transition probability predictors
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+library(LMest)
+
+
+# Response model vars
+latent_state_vars<-c("lvimp_shifted_cat", #Y1
+                     "painchr_ext"         #Y2
+)
+
+
+# Total Effect model vars
+TE_initial_prob_vars<-   c(
+                  "Sex_BIN",
+                  "raeduc_e",
+                  "wealthQ_bin",
+                  "ssupport6_cat",
+                  "MLTC",    
+                  "raagey_z"
+                  )
+
+TE_trans_prob_vars<-   TE_initial_prob_vars
+
+
+# Direct effect model vars
+
+DE_initial_prob_vars<-c(TE_initial_prob_vars,"cesd_lat_shifted","loneliness_group")
+DE_trans_prob_vars<- DE_initial_prob_vars
+
+
+```
+
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+###  TE DE models
+
+fmLatent_TE <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                                LatentInitial = TE_initial_prob_vars,
+                                LatentTransition =TE_trans_prob_vars
+)
+
+fmLatent_DE <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                                LatentInitial = DE_initial_prob_vars,
+                                LatentTransition =DE_trans_prob_vars
+)          
+```
+
+The next Step involves determining what is the appropriate number of latent state (k) that the LTA model should expect.
+
+# Latent states determination (k)
+
+We expect to find respondents with significantly impaired functioning (high health impact) that have chronic pain, but also respondents that suffer similar impairment without chronic pain. We expect to find respondents without any physical functioning issue or pain, and respodents with that may report acute pain but still no high levels of health impact. this should amount to k=4 states.
+
+as per Moore et al [(2025)][https://onlinelibrary.wiley.com/doi/full/10.1002/ijop.70021] we run all the possible K+ 1 models until reaching consistent nonconvergence and we compare how well each solution represents the data. 
+
+Function lmestSearch() addresses both model selection and the multimodality of the likelihood function. It employs different initializations to search for the global maximum of the log-likelihood function.
+
+Two main criteria are provided to select the number of latent states: AIC and BIC. For example, for the RLMSlong dataset we can estimate the basic LM model for increasing values of the latent states k. 
+
+The lmestSearch systematically fit models with various values of K and compares their fit based on information criteria (AIC and BIC) as suggested in Moore et al. (2025), which emphasize using comparative model fit statistics to guide the choice of k in latent Markov modeling. The function progresses as follow:
+
+1. lmestSearch runs the estimation for several values of $k$ (number of latent classes/states), each time recording log-likelihood ($lk_k$), AIC, and BIC.
+2. For each value of $k$, it performs multiple random initializations to mitigate the risk of local maxima due to likelihood multimodality. This is explicitely warranted in Moore et al. (2025).
+3. The function outputs and compares AIC and BIC values across candidate models, so that we can select the solution that best balances fit and parsimony. BIC is generally preferred in longitudinal latent class modeling for its stronger penalty on model complexity, as per the recommendations in the literature.
+
+Therefore we proceed as follow:
+
+1. explore what is a reasonbly large number of tries
+2. look at both lk and AIC/BIC to determine the optimal k
+
+**STEP 1**
+
+With two categorical indicators having respectively 3 levels and 4 levels each, we have a fairly complex response model and we should that the number of random starts is large enough to adequately explore the parameter space and ensure that $lk_k$ is not smaller than its maximum (up to a negligeable tolerance level),
+
+In order to find what is a sufficiently large of tries I set up a function that monitors both outliers and looks at the distribution of absolute differences between the maxima found. As we expeded $k_e$ = 4 we tried 200 reps of random starts algorythm for states for all states from $k = 2$ to $k = k_e+1$.
+
+The number of traces (fit attempts) per k is proportional to k and nrep, often as k * nrep. in particular lmestSearch() proceed as follow:
+
+| Start Value | Purpose                                         | Typical Count per \(k\)  |
+|-------------|------------------------------------------------|---------------------------|
+| 0           | Deterministic baseline initialization          | 1 run                     |
+| 1           | Random starts with random initial values       | \( nrep \times (k-1) \)   |
+| 2           | Initial values are taken from best solution    | 1 run                     |
+
+for example, with our nrep = 200 we will find that for k =2 there will be an lktrace with a sequence of n=1 determininistic ll, n=200 random start (nrep*(k-1)), 1 determininistic approach which uses the paramenters of the best model as starting values for one last (refinement) run.
+
+```{r,echo=FALSE,eval=FALSE, warning=FALSE,message=FALSE,error=FALSE,results='hide'}
+
+Lmest_search <- lmestSearch(responsesFormula =  fmLatent_TE$responsesFormula,
+                   index = c("idauniq","time"),
+                   data = LTAdata_long,
+                   version ="categorical",  # type of response
+                   k = 1:5,
+                   modBasic = 1, 
+                   nrep = 400,
+                   seed = 200720)
+timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
+saveRDS(Lmest_search,paste0(paper1_MODELS_rds_path,"K-State_parametrisation_n400_",timestamp_suffix,".rds"))
+saveRDS(Lmest_search,paste0(paper1_MODELS_rds_path,"K-State_parametrisation_n400.rds"))
+
+```
+
+In our diagnostics -- diagnose_logLik_diff() -- we compare the random starts ll excluding the two deterministic fits (start value = 0, and start value = 2). This way the 
+
+```{r echo=FALSE}
+Lmest_search<-readRDS(paste0(paper1_MODELS_rds_path,"K-State_parametrisation_n400.rds"))
+Lmest_search %>% summary
+Lmest_search$out.single[[3]] %>% plot(what = "CondProb")
+# result <- diagnose_logLik_diff(Lmest_search$out.single, k = 4, k_multiplier = 3, plot_hist = TRUE)
+# function(all_lks, k = 4, k_multiplier = 3, plot_hist = TRUE)
+state5_llDiffs<-lmestSearch_plot(Lmest_search$out.single,k = 5, k_multiplier = 3, plot_hist = TRUE)
+state4_llDiffs<-lmestSearch_plot(Lmest_search$out.single,k = 4, k_multiplier = 3, plot_hist = TRUE)
+state3_llDiffs<-lmestSearch_plot(Lmest_search$out.single,k = 3, k_multiplier = 3, plot_hist = TRUE)
+state2_llDiffs<-lmestSearch_plot(Lmest_search$out.single,k = 2, k_multiplier = 3, plot_hist = TRUE)
+
+median_diff <- mean(abs(state4_llDiffs$median_diff))
+
+cat("Median absolute diff near max for state 3:", abs(state3_llDiffs$median_diff), "\n")
+cat("Median absolute diff near max for state 4:", abs(state4_llDiffs$median_diff), "\n")
+cat("Median absolute diff near max for state 5:", abs(state5_llDiffs$median_diff), "\n")
+
+
+```
+The log-likelihood difference histograms (above and below filtering cutoffs) describe the convergence behavior across the k states we tested.
+
+In summary:
+
+* For k = 3, most runs either find the global maximum or are grouped in widely separated local optima, resulting in high median difference (307.9) and pronounced multimodal plots. This suggests poor stability and frequent failure to reach the best fit.
+* For k = 5, the pattern is similar: substantial variability and multiple peaks in the difference histograms, with a high median absolute difference (142.9). This indicates less reliable estimation and many suboptimal solutions even after filtering for outlies.
+In contrast, the 4-state model (k = 4) shows a tightly clustered histogram near the global maximum with a very low median absolute difference (3.33). Most optimization runs converge to or near the highest observed log-likelihood, suggesting acceptable stability and reliability of the k = 4 solution. The filtered histogram reinforces this, with nearly all runs closely grouped and minimal multimodality. The drop ratio (0.25) tells shows that in the 200 runs about 25% of starts failed to get close to the global maxima, but 75% were much closer suggesting a strong stability for a complex model.
+
+WE ACCEPT K = 4.
+
+
+# LMest configuration
+
+modBasic: Model on the transition probabilities:
+
+-   *modBasic = 0* assumes the transition-probability as time dependent
+    (the latent Markov chain is not time homogeneous): i.e. we allow for
+    transition-probability to be freely estimated at each time point
+-   *modBasic = 1* assumes the transition-probability as time
+    independent (the latent Markov chain is time homogeneous): i.e. the
+    transition probability are assumed as time invariant
+-   *modBasic = 2: to "TT"* when the Markov chain is partially
+    homogeneous of order equal to mod.
+
+start: (type of starting values): 
+
+  - Equal to 0 for deterministic starting values of the model parameters (default value) 
+  - Equal to 1 for random starting values 
+  - Equal to 2 for initial values provided as input arguments.
+  
+ntry: to set the number of random initializations
+
+fort: to use fortran routines when possible
+
+seed: an integer value with the random number generator state
+
+As we include covariates we have both a response formula and a latent formula: our model will estimate conditional transitions. These are transition probabilities that depend on the covariates in the latent formula, therefore allowing for different individual characteristics (different covariate values) to have different transition probabilities.
+
+
+## Total Effects (TE) model
+
+The TE model estimates the combined effects of  partnership status and key psychosocial and demographic variables—including sex, Education level, Wealth, multimorbidity (MLTC), and age—on both the initial probability of health state membership and on transitions between latent states over time. This model captures overarching associations, treating the included predictors as potential total effects on both latent status and change.
+
+## Direct Effects (DE) Model
+The DE model extends the TE specification by additionally including depression, and loneliness as covariates. This adjustment reflects the hypothesis that partner status and marital strain contribute indirectly to health transitions through downstream effects on individuals' emotional well-being, loneliness, and household wealth. By including these pathways explicitly, the DE model disaggregates direct effects from those potentially mediated by wealth, depression and loneliness.
+
+# TE DE models
+
+*"A unique aspect of all finite mixture models is that although there is a global, best-fitting solution at the global maximum log likelihood (LL), there are also multiple less well-fitting solutions at different local maxima LL (Collins and Lanza 2009; Masyn 2013; Moore and Little 2024; Nylund 2007). Part of the exploratory nature of finite mixture models is running each K + 1 class model with multiple random starts so that each model run includes multiple model solutions with their LL reported in the output."* In Lmest this is implemented setting "start = 1". *These multiple starts enable the researcher to see how often the best-fitting LL was repeated, which is part of building supporting evidence for that solution as the likely global solution.* 
+[https://onlinelibrary.wiley.com/doi/full/10.1002/ijop.70021]
+
+In the current lmest setup for the final TE models we set "ntry = 5" and "start = 1. With "k = 4" this setup implies 1 deterministic start plus 5×4 = 20 random starts. This procedure works in three steps as follow:
+
+1. Deterministic start: A single run with start = 0 is executed first and iterates to a stable LL serving as a baseline.
+2. Random starts: LMest scales the number of random starts by k (ntry × k). Each random start prints its LL trajectory and convergence metrics until it settles.
+3. After all starts, LMest takes the converged solution with the highest final log-likelihood as the model output.
+
+
+Using the custom fuction *run_LMEST_models_parallel()* we get a report of the final LL from each random and deterministic iteraction, a replication summary table, and we can assess the replication pattern of the LL convergences across all the random starts - i.e. how many times the models reached the global maximum.
+
+
+
+Assessment of the model fitting process:
+
+Multiple starts: These multiple random initializations plus a deterministic one, match the recommendation to explore the likelihood surface to avoid local optima.
+
+Replication of the top LL: The runs converge repeatedly to essentially the same LL (differences on the order of 0.0x to 0.00x), which is precisely the replication criterion used to argue proximity to the global maximum. It would be easy to formalize this by counting how many times the top LL is matched within a small tolerance (e.g., 1e−4 or 1e−5).
+
+Escalation: The current configuration uses 5X4=20 random starts for k = 4. For complex TE/DE models with many covariates (we have 6 in TE and 8 in DE model), it is still reasonable to escalate ntry if the top LL is not replicated multiple times or if standard errors/diagnostics suggest instability. We can check the log and see we see consistent convergence behavior with many runs landing at the same neighborhood.
+
+```{r,echo=FALSE,eval=TRUE, warning=FALSE,message=FALSE,error=FALSE,results='hide'}
+TE_initial_prob_vars<- c(
+                  "Sex_BIN",
+                  "raeduc_e",
+                  "wealthQ_bin",
+                  "ssupport6_cat",
+                  "MLTC",
+                  "raagey_z"
+                  )
+
+TE_trans_prob_vars<- c(TE_initial_prob_vars)
+
+# DE_initial_prob_vars: 
+DE_vars<-c(TE_initial_prob_vars,"cesd_lat_shifted","wealthQ_bin","loneliness_group")
+
+
+
+###  TE formula
+fmLatent_TE <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                                LatentInitial = TE_initial_prob_vars,
+                                LatentTransition =TE_trans_prob_vars
+)
+
+
+###  DE formula
+fmLatent_DE <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                                LatentInitial = DE_vars,
+                                LatentTransition =DE_vars
+)
+
+
+```
+
+
+```{r,echo=FALSE,eval=FALSE, warning=FALSE,message=FALSE,error=FALSE,results='hide'}
+
+################################################################################
+######################  TOTAL EFFECTS              #############################
+################################################################################
+
+
+model_configs <- list(
+     Total_Effects_fit = list(
+       name = "TE",
+       description = "TE model",
+       responsesFormula = fmLatent_TE$responsesFormula,
+       latentFormula = fmLatent_TE$latentFormula,
+       save_FULLpath = paste0(paper1_MODELS_rds_path, "TotalEffects.rds")
+       ),
+       Direct_Effects_fit = list(
+           name = "DE",
+           description = "DE model",
+           responsesFormula = fmLatent_DE$responsesFormula,
+           latentFormula = fmLatent_DE$latentFormula,
+           save_FULLpath = paste0(paper1_MODELS_rds_path, "DirectEffects.rds")
+       )
+     )
+
+TE_results_parallel_output <- run_lmest_parallel_seeds(
+  config = model_configs[[1]],
+  data = LTAdata_long,
+  n_reps = 50,      
+  ntry = 5, # random starts are k * ntry
+  n_cores = 10      
+)
+
+TE_results_parallel_output$plot
+TotalEffects<-TE_results_parallel_output$best_model
+
+timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+saveRDS(TotalEffects,paste0(paper1_MODELS_rds_path,"TotalEffects_",timestamp_suffix,".rds"))
+saveRDS(TotalEffects,paste0(paper1_MODELS_rds_path,"TotalEffects.rds"))
+
+saveRDS(TE_results_parallel_output,paste0(paper1_MODELS_rds_path,"TE_results_parallel_output_",timestamp_suffix,".rds"))
+saveRDS(TE_results_parallel_output,paste0(paper1_MODELS_rds_path,"TE_results_parallel_output.rds"))
+```
+
+
+```{r,echo=FALSE,eval=FALSE, warning=FALSE,message=FALSE,error=FALSE,results='hide'}
+################################################################################
+######################  Direct EFFECTS              #############################
+################################################################################
+
+DE_results_parallel_output <- run_lmest_parallel_seeds(
+  config = model_configs[[2]],
+  data = LTAdata_long,
+  n_reps = 50,      
+  ntry = 5,
+  n_cores = 10      
+)
+
+DE_results_parallel_output$plot
+DirectEffects<-TE_results_parallel_output$best_model
+DirectEffects$call$responsesFormula<-fmLatent_DE_Qual$responsesFormula
+DirectEffects$call$latentFormula<-fmLatent_DE_Qual$latentFormula
+
+timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+saveRDS(DirectEffects,paste0(paper1_MODELS_rds_path,"DirectEffects_",timestamp_suffix,".rds"))
+saveRDS(DirectEffects,paste0(paper1_MODELS_rds_path,"DirectEffects.rds"))
+
+saveRDS(DE_results_parallel_output,paste0(paper1_MODELS_rds_path,"DE_results_parallel_output_",timestamp_suffix,".rds"))
+saveRDS(DE_results_parallel_output,paste0(paper1_MODELS_rds_path,"DE_results_parallel_output.rds"))
+
+
+
+```
+
+
+```{r,echo=FALSE, warning=FALSE,message=FALSE,error=FALSE}
+TE_results_parallel_output<- readRDS(paste0(paper1_MODELS_rds_path,"TE_results_parallel_output.rds"))
+DE_results_parallel_output<- readRDS(paste0(paper1_MODELS_rds_path,"DE_results_parallel_output.rds"))
+
+
+Total_Effects_fit<- readRDS(paste0(paper1_MODELS_rds_path,"TotalEffects.rds"))#"/Backups/TotalEffects_20250830_164442.rds"))
+Direct_Effects_fit<-readRDS(paste0(paper1_MODELS_rds_path,"DirectEffects.rds"))#"/Backups/DirectEffects_20250830_215406.rds"))
+print(Total_Effects_fit)
+print(Direct_Effects_fit)
+
+LR_TE_DE <- 2 * (Direct_Effects_fit$lk - Total_Effects_fit$lk)
+df_TE_DE <- Direct_Effects_fit$np - Total_Effects_fit$np # np_full − np_noExpBlock as reported by LMest
+p_TE_DE  <- pchisq(LR_TE_DE, df = df_TE_DE, lower.tail = FALSE)
+
+
+cat(sprintf("DE_model vs TE_model: χ²(df=%d) = %.2f, p = %.4g\n",df_TE_DE, LR_TE_DE, p_TE_DE)) 
+
+TE_DE_vals <- data.frame(
+  Model = c("TE model", "DE model"),
+  lK    = c(Total_Effects_fit$lk,
+            Direct_Effects_fit$lk),
+  AIC   = c(Total_Effects_fit$aic,
+            Direct_Effects_fit$aic),
+  BIC   = c(Total_Effects_fit$bic,
+            Direct_Effects_fit$bic)
+) 
+TE_DE_vals$DeltaLk <- 2* (TE_DE_vals$lK - min(TE_DE_vals$lK, na.rm = TRUE))
+TE_DE_vals$DeltaAIC <- (TE_DE_vals$AIC) - min(TE_DE_vals$AIC, na.rm = TRUE)
+TE_DE_vals$DeltaBIC <- TE_DE_vals$BIC - min(TE_DE_vals$BIC, na.rm = TRUE)
+
+print(TE_DE_vals[order(TE_DE_vals$AIC), ], row.names = FALSE) %>% kable(caption = "LRT between DE and TE models - Deltas represent (e.g.) AIC_full - AIC_noExpBlock")
+
+#class(Total_Effects_fit)
+
+#summary(Total_Effects_fit)
+
+
+#class(Total_Effects_fit)
+
+#summary(Total_Effects_fit)
+
+```
+Model fit comparison (k=4; same data/spec except depression and loneliness placement)
+
+TE estimates total effects of Partnership status (including pathways via depression and loneliness). DE estimates direct effects (conditional on depression and loneliness), so we expect Partnership status coefficients to attenuate relative to TE.
+
+* TE (total effects; no competing depression and loneliness): 
+* DE (direct effects; includes competing depression and loneliness): 
+
+The LRT statistic calculated for ll is *xx.xx* which is positive and large, indicating DE model significantly improves fit over TE model. In addition we that under DE model both AIC/BIC improve dramatically . This data support depression and loneliness being strongly related to the latent state process (as confounder and/or mediator). This of course does not invalidate the TE model, it just confirms that part of the TE association could be operating through depression and loneliness. In fact, the improved AIC/BIC in DE indicates that depression and loneliness captures substantial variance in latent dynamics. This is evidence for a depression and loneliness-related pathway onto chronic pain states which is consistent with theory.
+
+## State and transitions Chart
+The order of latent states produced by the latent Markov model (LMM) is arbitrary. This means that what is labeled as State 1 in the Total Effects (TE) model may be identified as State 3 in the Direct Effects (DE) model. However, the TE and DE models are expected to produce very similar conditional response probability profiles across latent states. In other words, despite potential reordering, the configuration of observed indicators within each state should be nearly identical between models. 
+
+### Reordering TE and DE the latent states
+
+As we anticipated the LM model returns states in an order that can make coefficients more difficult to interpret. In Total_Effects_fit the "healthy state" appear as state 
+For example it would be helpful to have the healthy state (no pain, no health impact) as state 0 and have the other states order so that they represent progressive deterioration on both the indicators. 
+
+In order to do so we can adopt two approaches:
+
+  1. Estimate the model with covariates and then reorder both the mean matrix according to the desired ordering of the obtained groups and the estimated matrix of coefficients of the initial and transition probability estimates (Be and Ga). Once reordered, the bootstrap is performed using all the reordered estimated objects as input.
+  2. Alternatively, re-estimate the model with the option start = 2, inputting all the reordered objects as starting values, so that the output is ready for otaining the standard errors in the usal way with output = T or for using  the bootstrap function without needing modification.
+  
+  
+#### STEP1 identify the state order we want to see. 
+
+To align and interpret states consistently, we compute the expected response means for each indicator within each latent state by multiplying the category labels by their respective conditional response probabilities. Summing these expected means across indicators provides a proxy "severity score" (for simplicity we assume here equal weighting of indicators due to no prior clinical preference).
+
+In this case both categorical indicators can be seen as ordinal monotonic indicators 
+
+* health impact: 3 levels: (0,1,2)
+* chornic pain: 4 levels (0,1,2,3) 
+
+From our model fit object, each column of $Psi$ stores the posterior probabilities for the levels of the categorical indicator within each latent state.  E.g. given item 1 and membership "state 1", $Psi[,1,1]$ gives the probabilities of each scoring level of item 1. 
+
+|          | State     1| State   2| State   3| State   4|
+|:---------|-----------:|---------:|---------:|---------:|
+|categ. 0  | *0.6680117*| 0.2572619| 0.0315770| 0.9226566|
+|categ. 1  | *0.1446417*| 0.3032788| 0.0597135| 0.0616959|
+|categ. 2  | *0.1811108*| 0.3724907| 0.4715774| 0.0156451|
+|categ. 3  | *0.0062358*| 0.0669687| 0.4371320| 0.0000024|
+
+**Assumming that the healthier state is most likely to gather responses near the "zero" of both indicators**, we can use these levels as weight of those posterior probabilities and use these weighted PSIs to reorder the factor. This weighted PSI works as an ascending composite severity scores, assigning the state with the lowest expected severity as the "healthiest" state. 
+
+
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+TE_ordering <- Determine_state_ordering(Total_Effects_fit, 
+                                       indicator_names = c("lvimp_shifted_cat", "painchr_ext"),
+                                       indicator_weights = c(.6,.4)
+                                       )
+
+state_order_TE<-TE_ordering$severity_order
+
+
+
+DE_ordering <- Determine_state_ordering(Direct_Effects_fit, 
+                                       indicator_names = c("lvimp_shifted_cat", "painchr_ext"),
+                                       indicator_weights = c(.6,.4)
+                                       )
+state_order_DE<-DE_ordering$severity_order
+
+##############################
+####  Sanity Check
+#############################
+plot(Total_Effects_fit, what="CondProb")
+mtext("Model:Total_Effects_fit", side = 3, line = -7, adj = 1)
+mtext(paste("PSI-determined state order:",paste(state_order_TE, collapse = " ")), side = 3, line = -8.5, adj = 1)
+
+plot(Direct_Effects_fit, what="CondProb")
+mtext("Model:Direct_Effects_fit", side = 3, line = -7, adj = 1)
+mtext(paste("PSI-determined state order:",paste(state_order_DE, collapse = " ")), side = 3, line = -8.5, adj = 1)
+
+
+ 
+cat("PSI-determined state order (TE):",state_order_TE)
+
+cat("PSI-determined state order (DE):",state_order_DE)
+
+
+cat("PSI determined state order should show a graded order so that moving up in the states will mean worsening")
+
+```
+
+
+#### STEP2 Rebaseline Be and Ga Coefficients
+
+In multinomial logit our model estimates the log-odds of each category relative to a reference category. For an LMest model with $k$ latent states, lmest will take State 1 as the reference category by default. For each $j$ state, the coefficients $\beta_j$ for each covariate correspond to:
+
+$\beta_j = \log\left(\frac{P(\text{State}_j)}{P(\text{State}_1)}\right), \quad j = 2, \ldots, k,$
+
+In order to re-parameterize the log-odds so that they take (e.g.) *State 4* as the reference, we use the following transformation:
+
+$\log\left(\frac{P(\text{State}_j)}{P(\text{State}_4)}\right)=  \log\left(\frac{P(\text{State}_j)}{P(\text{State}_1)}\right) - \log\left(\frac{P(\text{State}_4)}{P(\text{State}_1)}\right)$
+
+This is equivalent to:
+
+$\log\left(\frac{P(\text{State}_j)}{P(\text{State}_4)}\right)=\beta_j-\beta_4$
+
+That is: the log-odds of being in State $j$ relative to State 4 can be obtained by subtracting the coefficient vector for State 4 from that of State $j$ (with both j and 4 being those coefficients originally estimated by lmest and relative to State 1).
+
+##### Reorder BE coefficients
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+Be_rebased_TE <- rebase_Be_latent_coefficients(Total_Effects_fit, state_order_TE)
+Be_rebased_DE <- rebase_Be_latent_coefficients(Direct_Effects_fit, state_order_DE)
+
+
+```
+##### Reorder GA Coefficients
+This is the same process as BE but we have to iterate all the Ga dimensions.
+
+Ga has dim = covariates × (k-1) contrasts × k starting states.
+
+We can start creating an equivalent expanded array ($Gaf$) with a zero column for each baseline (same state transition). In our case we have four possible starting states, therefore exactly like $ga$, $gaf$ will have four matrices (one for each starting state), but like we did for the initial probability we had a columns of zero for each baseline category. E.g. if the $ga$ for the transition starting from state 3 are: 
+
+|                   |          2|           3|         4|
+|:------------------|----------:|-----------:|---------:|
+|(Intercept)        | -0.0109210| -14.6611361| 39.709539|
+|Sex_BINMale        |  0.2772182|   0.4240812| 12.282675|
+|nettotw_bu_s_log   | -0.1995111|   0.8587250| -7.231243|
+|MLTC               |  0.0696169|  -0.3278635| -7.597989|
+|raagey_z           |  0.3680796|  -0.3942125| -1.952270|
+
+after the first step for each starting state $st$ $Gaf[, st, st]$ is zero vector. e.g. Gaf[,,3]:
+
+|                   |         1 |         2  |        3 |         4|
+|:------------------|----------:|-----------:|---------:|---------:|
+|(Intercept)        | -0.0109210| -14.6611361|         0| 39.709539|
+|Sex_BINMale        |  0.2772182|   0.4240812|         0| 12.282675|
+|nettotw_bu_s_log   | -0.1995111|   0.8587250|         0| -7.231243|
+|MLTC               |  0.0696169|  -0.3278635|         0| -7.597989|
+|raagey_z           |  0.3680796|  -0.3942125|         0| -1.952270|
+
+
+Important:We need to reorder both 2nd dim (contrasts) and 3rd dim (starting states).
+
+In fact we need to a solusion where if the original State_4 (healthy state) is now State_1 in $Gaf$,  then all the transition parameters of $Ga[,,4]$ should appear under $Gaf[,,1]$ after being opportunely rebased ($\beta_st-\beta_{NEWbaselineState}$)
+
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+
+
+Ga_rebased_TE <- rebase_Ga_transition_coefficients(Total_Effects_fit$Ga, state_order_TE)
+Ga_rebased_DE <- rebase_Ga_transition_coefficients(Direct_Effects_fit$Ga, state_order_DE)
+
+```
+
+#### STEP 3 ReFit models with start = 2
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+k <- dim(Direct_Effects_fit$Ga)[3]
+# Reorder Psi - represents the conditional response probabilities
+
+# The second dimension indexes latent states, so we reorder it by state_order
+  Psi_reordered_TE <- Total_Effects_fit$Psi[, state_order_TE, , drop = FALSE]
+  dimnames(Psi_reordered_TE)[[2]] <- as.numeric(1:k)
+
+
+  
+# Same to reorder the PSI for the direct effects DE
+  Psi_reordered_DE <- Direct_Effects_fit$Psi[, state_order_DE, , drop = FALSE]
+    dimnames(Psi_reordered_DE)[[2]] <- as.numeric(1:k)
+
+
+```
+
+
+
+```{r,eval=FALSE,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+## RE-FIT with start value = 2 and providing the rebased starting values
+
+
+NEW_startValues_TE<-  list(
+                          Be = Be_rebased_TE,
+                          Ga = Ga_rebased_TE,
+                          Psi = Psi_reordered_TE
+                        )
+
+fit_reordered_TE <- lmest(
+                        responsesFormula = fmLatent_TE$responsesFormula,
+                        latentFormula = fmLatent_TE$latentFormula,
+                        data  = Total_Effects_fit$data,
+                        index = c("idauniq", "time"),  # adjust as needed
+                        k = 4,
+                        start = 2,
+                        fort = T,
+                        parInit = NEW_startValues_TE,
+                        output = TRUE,
+                        out_se = TRUE
+                )
+plot(fit_reordered_TE,  what="CondProb")
+
+
+
+NEW_startValues_DE<-  list(
+                          Be = Be_rebased_DE,
+                          Ga = Ga_rebased_DE,
+                          Psi = Psi_reordered_DE
+                        )
+
+  
+
+fit_reordered_DE <- lmest(
+                        responsesFormula = fmLatent_DE$responsesFormula,
+                        latentFormula = fmLatent_DE$latentFormula,
+                        data  = Direct_Effects_fit$data,
+                        index = c("idauniq", "time"),  # adjust as needed
+                        k = 4,
+                        start = 2,
+                        fort = T,
+                        parInit = NEW_startValues_DE,
+                        output = TRUE,
+                        out_se = TRUE
+                )
+plot(fit_reordered_DE,  what="CondProb")
+
+timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
+saveRDS(fit_reordered_TE,paste0(paper1_MODELS_rds_path,"fit_reordered_TE",timestamp_suffix,".rds"))
+saveRDS(fit_reordered_TE,paste0(paper1_MODELS_rds_path,"fit_reordered_TE.rds"))
+
+saveRDS(fit_reordered_DE,paste0(paper1_MODELS_rds_path,"fit_reordered_DE",timestamp_suffix,".rds"))
+saveRDS(fit_reordered_DE,paste0(paper1_MODELS_rds_path,"fit_reordered_DE.rds"))    
+
+```
+
+# Initial state probability
+
+Initial probabilities (denoted Piv in the model output, Total_Effects_fit$Piv) represent the probability distribution over the latent states at the first time point (baseline).
+
+This table gives the average estimated probability of being in each latent state at baseline. These initial probabilities (Total_Effects_fit$Piv) come directly from the model fit and are therefore conditional to the baseline multinomial logistic regression.
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+Total_Effects_fit<-readRDS(paste0(paper1_MODELS_rds_path,"fit_reordered_TE.rds"))
+Direct_Effects_fit<-readRDS(paste0(paper1_MODELS_rds_path,"fit_reordered_DE.rds"))
+
+
+# Calculate averaged initial probabilities for each state
+initial_probs <- sapply(1:Total_Effects_fit$k, function(u) round(mean(Total_Effects_fit$Piv[, u]), 3))
+
+# Create a data frame
+initial_prob_table <- data.frame(
+  State = paste("State", 1:4),
+  Description = c(
+    "Healthy - no pain, health impact below threshold",
+    "Pain with LOW(*) impact",
+    "Disability/impact WITHOUT chronic pain(**)",
+    "Chronic pain HIGH impact"
+  ),
+  Average_Initial_Probability = initial_probs
+)
+# Print the table
+kable(initial_prob_table)
+cat(" (*) this is a mix of no pain, acute, and some chronic cases, but all with minimal functional limitation \n (**) this captures frailty, mobility issues, other age-related substantial limitations")
+
+
+ 
+```
+
+## Initial state Summary of Associations
+*it is important that the model solution is interpretable, which includes having multiple characteristics. First, from an absolute sense, the sample size for the smallest class needs to be large enough for the researcher to be comfortable interpreting it out to the population. Class size can become a challenge, particularly if there are realistically low frequency classes enumerated. For example, if examining classes related to types of drug use, the proportion of responders who regularly use heroin is likely small in both the population and the representative sample. *
+[https://onlinelibrary.wiley.com/doi/full/10.1002/ijop.70021]
+
+```{r echo=FALSE}
+
+####################  TE MODEL
+
+N_obs_states_TE<-get_observed_InitialStates_counts(Total_Effects_fit)
+
+Be_varnames_TE<-(Total_Effects_fit$Be %>% row.names())[-1]
+
+
+# # Or for specific covariates by name
+initial_States_summary_TE <- initial_prob_Diagnostics(
+   model = Total_Effects_fit,
+  # var_names  = c("PA_BINInactive/only mild activity"), # if you omit varnames it will do this for all variables
+   N_obs_states = N_obs_states_TE,
+   # The next omits the intercept i.e. the log-odds of being in state 2,3,4 versus 1 when all predictors are zero.
+   skip_intercept = TRUE, 
+   conf_level = 0.95
+   
+ )
+#initial_States_summary_TE
+initial_States_summary_TE_short <- initial_States_summary_TE %>% 
+  arrange(Sep_Flag,varname,State) %>% filter(grepl("^partner", varname)|grepl("^Sex_partner", varname))
+
+####################  DE MODEL
+
+N_obs_states_DE<-get_observed_InitialStates_counts(Direct_Effects_fit)
+
+Be_varnames_DE<-(Direct_Effects_fit$Be %>% row.names())[-1]
+
+
+# # Or for specific covariates by name
+initial_States_summary_DE <- initial_prob_Diagnostics(
+   model = Direct_Effects_fit,
+  # var_names  = c("PA_BINInactive/only mild activity"), # if you omit varnames it will do this for all variables
+   N_obs_states = N_obs_states_DE,
+   # The next omits the intercept i.e. the log-odds of being in state 2,3,4 versus 1 when all predictors are zero.
+   skip_intercept = TRUE, 
+   conf_level = 0.95
+   
+ )
+
+initial_States_summary_DE_short <- initial_States_summary_DE %>% 
+  arrange(Sep_Flag,varname,State) %>% filter(grepl("^partner", varname)|grepl("^Sex_partner", varname)|varname == "cesd_lat_shifted" |varname == "lnlys")
+
+kable(initial_prob_table)
+kable(initial_States_summary_TE_short, caption = "Initial state probability summary for TE model")
+kable(initial_States_summary_DE_short, caption = "Initial state probability summary for DE model")
+
+```
+
+
+### H1 (Partnership status is associated with initial probability )
+
+
+### H2 (Exposure contribution in the TE and DE model):
+
+Here we carry out two  nested-model tests to check wether our exposure contribute to an improved fit when compared with a model that does not include the contribution of the exposures. The exposure is defined as follow:
+
+    exposure = "partnership status" 
+    
+
+We will carry out one nested model test for the TE model and one for the DE model (i.e. Total_Effects_fit and Direct_Effects_fit). Each of the two models will be compared with their respective "reduced" version. The reduced version of the TE and DE models will be the same in every way except that we will remove the exposure. This way we define two new hierarchically nested models Total_Effects_fit_noExpBlock and Direct_Effects_fit_noExpBlock. Note that we keep the latentTransition formula unchanged so that the two "reduced" models are perfectly nested within their "full" versions. A likelyhood-ratio test (LRT) within each nested couple will tell us whether the contribution of the exposure is significant.
+
+As explained above: the reduced DE and TE models are simply a special case of their respective full model obtained by constraining certain parameters to zero. 
+
+Therefore, for the TE (total effect) model, we tests whether the exposure at baseline without conditioning on depression and loneliness; in the DE model, we tests whether exposure is relevant at baseline *after* conditioning on depression and loneliness. If TE of Partnership status is significant but DE is attenuated or NS, we will get additional empirical supports that much of the baseline association between partnership status and initial state probabilities is absorbed by correlated levels of depression and loneliness. 
+
+The LRT test statistic used here is the same typical procedure used in SEM and glm, and it computed as twice the difference in maximized log-likelihoods:
+
+$$LR = 2 × (logLik_{full} − logLik_{noExpBlock})$$
+with: $df = np_{full} − np_{noExpBlock}$, and: $p = P(χ²_{df} >= LR) = pchisq(LR, df, lower.tail = FALSE)$.
+
+Here the formula for the Reduced models (without exposure ) and the respecti LRT test with the full base TE and DE models
+```{r,echo=FALSE, eval=F, warning=FALSE,message=FALSE,error=FALSE}
+################################################################################
+##################### REDUCED MODELS excluding the exposure
+################################################################################
+fmLatent_TE_noExpBlock_init <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                          LatentInitial =  TE_vars %>%
+                            setdiff(c("ssupport6_cat")),
+                          LatentTransition =TE_vars # we keep transition formula unchanged so that this model is nested in the previous.
+                         )
+
+fmLatent_DE_noExpBlock_init <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                          LatentInitial = DE_vars %>%
+                            setdiff(c("ssupport6_cat")),
+                          LatentTransition =DE_vars  # we keep transition formula unchanged so that this model is nested in the previous.
+                        )
+
+fmLatent_TE_noExpBlock_trans <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                          LatentInitial =  TE_vars, # we keep Initial prob formula unchanged so that this model is nested in the previous. 
+                          LatentTransition =TE_vars %>%
+                            setdiff(c("ssupport6_cat"))
+                         )
+
+fmLatent_DE_noExpBlock_trans <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                          LatentInitial = DE_vars, # we keep Initial prob formula unchanged so that this model is nested in the previous. 
+                          LatentTransition =DE_vars %>%
+                            setdiff(c("ssupport6_cat"))
+                        )
+
+model_configs <- list(
+      Total_Effects_fit_noExpBlock_init = list(
+        name = "TE_noExpBlock",
+        description = "Final TE model",
+        responsesFormula = fmLatent_TE_noExpBlock_init$responsesFormula,
+        latentFormula = fmLatent_TE_noExpBlock_init$latentFormula,
+        save_FULLpath = paste0(paper1_MODELS_rds_path, "TotalEffects_noExpBlock_init.rds")
+      ),
+      Direct_Effects_fit_noExpBlock_init = list(
+        name = "DE_noExpBlock",
+        description = "Final DE model",
+        responsesFormula = fmLatent_DE_noExpBlock_init$responsesFormula,
+        latentFormula = fmLatent_DE_noExpBlock_init$latentFormula,
+        save_FULLpath = paste0(paper1_MODELS_rds_path, "DirectEffects_noExpBlock_init.rds")
+      ),
+     Total_Effects_fit_noExpBlock_trans = list(
+        name = "TE_noExpBlock",
+        description = "Final TE model",
+        responsesFormula = fmLatent_TE_noExpBlock_trans$responsesFormula,
+        latentFormula = fmLatent_TE_noExpBlock_trans$latentFormula,
+        save_FULLpath = paste0(paper1_MODELS_rds_path, "TotalEffects_noExpBlock_trans.rds")
+      ),
+      Direct_Effects_fit_noExpBlock_trans = list(
+        name = "DE_noExpBlock",
+        description = "Final DE model",
+        responsesFormula = fmLatent_DE_noExpBlock_trans$responsesFormula,
+        latentFormula = fmLatent_DE_noExpBlock_trans$latentFormula,
+        save_FULLpath = paste0(paper1_MODELS_rds_path, "DirectEffects_noExpBlock_trans.rds")
+      )
+)
+
+```
+      
+      
+      
+```{r,echo=FALSE, eval=T, warning=FALSE,message=FALSE,error=FALSE}
+
+### Load the models to prevent re-run everything!
+Total_Effects_fit_noExpBlock_init<-readRDS(paste0(paper1_MODELS_rds_path,"TE_DE_no-expBlock/TotalEffects_noExpBlock_init.rds"))
+Direct_Effects_fit_noExpBlock_init<-readRDS(paste0(paper1_MODELS_rds_path,"TE_DE_no-expBlock/DirectEffects_noExpBlock_init.rds"))
+# these models have not being rebased to get the healthier state as state 1. When we rebase the models
+# we have to run LMest() with start = 2 and provide starting values from the best fit achieved in the Random starts
+# this last fit inevitably improves the fit overal fit of the model. For a fair comparison we use the "unordered" TE and DE 
+# models that have gone through the same number of random and deterministic starts
+non_orderedTotal_Effects_fit<- readRDS(paste0(paper1_MODELS_rds_path,"TotalEffects.rds"))#"/Backups/TotalEffects_20250830_164442.rds"))
+non_orderedDirect_Effects_fit<-readRDS(paste0(paper1_MODELS_rds_path,"DirectEffects.rds"))#"/Backups/DirectEffects_20250830_215406.rds"))
+
+
+LR_TE <- 2 * (non_orderedTotal_Effects_fit$lk - Total_Effects_fit_noExpBlock_init$lk)
+df_TE <- non_orderedTotal_Effects_fit$np - Total_Effects_fit_noExpBlock_init$np  
+p_TE  <- pchisq(LR_TE, df = df_TE, lower.tail = FALSE)
+
+
+LR_DE <- 2 * (non_orderedDirect_Effects_fit$lk - Direct_Effects_fit_noExpBlock_init$lk)
+df_DE <- non_orderedDirect_Effects_fit$np - Direct_Effects_fit_noExpBlock_init$np  
+p_DE  <- pchisq(LR_DE, df = df_DE, lower.tail = FALSE)
+
+cat(sprintf("Initial probabilities LRT comparison removing the exposure"))
+cat(sprintf("TE vs TE_no_exp_block: χ²(df=%d) = %.2f, p = %.4g\n", df_TE, LR_TE, p_TE)) 
+cat(sprintf("DE vs DE_no_exp_block: χ²(df=%d) = %.2f, p = %.4g\n", df_DE, LR_DE, p_DE)) 
+```
+
+Both tests are significant. Therefore, partnership status improve fit for baseline latent state membership under both estimands (TE and DE). 
+
+For the TE model (which tests the relevance of the exposure without conditioning on depression and loneliness), the test statistic is `r cat(sprintf("TE vs TE_no_exp_block: χ²(df=%d) = %.2f, p = %.4g\n", df_TE, LR_TE, p_TE))`. This strongly suggest that the exposure is relevant for the overall fit of the MM.
+For the DE model (which tests the relevance of the exposure after conditioning on depression and loneliness), the test statistic is `r cat(sprintf("DE vs DE_no_exp_block: χ²(df=%d) = %.2f, p = %.4g\n", df_DE, LR_DE, p_DE))`.
+This is also highly significant, indicating the exposure remains relevant even after accounting for depression and loneliness.
+
+This is somewhat surprising as we expected that the association between partnership status and health states to operate via depression and loneliness (which would expect a weak or nonsignificant LRT when we compare the DE model vs the DE model without the BL partnership status).
+
+
+# Transition Probability
+
+The lmest model was run with setting:
+
+             modBasic = 1, # (0 for time-heterogeneity, 1 for time-homogeneity)
+
+which assumes time-homogeneity
+
+the average transition probabilities as estimated by the model were:
+```{r echo=FALSE}
+
+
+
+## extracted from the plot function - based on getAnywhere(plot.LMlatent)
+calc_transition_matrix <- function(model) {
+  # Get dimensions
+  TT <- dim(model$PI)[4]
+
+  # Calculate mean transition probabilities across subjects and time points
+  # Note: using time points 2:TT as specified in the plot function
+  PM <- round(apply(model$PI[, , , 2:TT], c(1, 2), mean), 3)
+
+  # Normalize rows to sum to 1 using the same method as the plot function
+  PM <- round(diag(1/rowSums(PM)) %*% PM, 3)
+
+  # Add row and column names
+  rownames(PM) <- paste("From State", 1:model$k)
+  colnames(PM) <- paste("To State", 1:model$k)
+
+  return(PM)
+}
+
+# Calculate and display the average transition probability matrix
+trans_probs <- calc_transition_matrix(Total_Effects_fit)
+print(trans_probs)
+
+```
+
+
+## Transition Summary of Associations
+
+Despite the large sample (n = 8014) assessing the reliability of transition probability estimates can be challenging when some covariate-state combinations are sparse or potentially separated (perfect prediction).
+
+With n=4 initial states we n-1=3 possible transitions to other states that we want to predict. Respondents are distributed unevenly between the for possible initial states. In fact, our model tell us which is the probability of a respondent being in each of the the initial states. As some initial states are far less prevalent then others it is possible that our model may be trying to estimate transition probabilities using very few observations, e.g.: we have very few respondents that transition from state 1 (healthy state) to state 4 (chronic widespread state), this could easily lead the model to trying and estimate parameters with very little information. When this happens we may notice that the model fails or struggle to converge, large standard errors relative to the predictor coefficients, complete or quasi-complete separation.
+
+We can use the lmestDecoding() function to extract the matrix of global decoded states (via the Viterbi algorithm) assigns the most probable entire sequence of latent states per subject. Using the custom:
+
+    get_observed_transition_counts(model,option = "global")
+
+Assuming the model was fi successfully, the above function uses global decoding to get transition counts that correspond to the actual number of transitions observed under the model's best estimate of the latent state sequences. These counts are *critical diagnostic* as they provide the effective sample size for the multinomial logistic regression coefficients (i.e., log-odds) modeling transitions from one state to another.
+
+https://www.jstatsoft.org/article/view/v081i04
+
+
+```{r echo=FALSE}
+
+TE_Nobs_trans_between_states<-get_observed_transition_counts(Total_Effects_fit, option = "global")
+DE_Nobs_trans_between_states<-get_observed_transition_counts(Direct_Effects_fit, option = "global")
+
+# Global decoding gives a robust and realistic count of transitions that can be helpful for diagnostic purposes
+# E.g. Looking at transition specific event counts may give insight whether a logOdds regression coefficient is interpretable, unstable or an artifact of model separation
+#print(Nobs_trans_between_states)# %>% addmargins())
+# This directly counts the hard‑assigned transitions in the dataset.
+# I.e. Nobs_trans_between_states = the actual regression sample sizes for each "state to" outcome in paramLatent = "multilogit".
+
+#latseq <- lmestDecoding(Total_Effects_fit)$Ug  # global decoded sequences matrix (individuals × time)
+# Ehere we extract each respondent's state allocation at each time point: the function above does the same internally
+#wave_1_states <- latseq[, 1]  # then we can table(wave_1_states, wave_2_states) # First "tick"
+#wave_2_states <- latseq[, 2] # then we can table(wave_2_states, wave_3_states) # Second "tick"
+#wave_3_states <- latseq[, 3] ..
+
+```
+
+In order to assessing the signs of model separation we look at:
+  
+* absolute logit coefficients larger than 5
+* extremely large SE (> 5)
+* convergence failure or warnings
+* low transition counts (sample size needs to be evaluated across all transitions)
+
+In particular low transition counts can cause overfit and therefore biasing the predictors' estimate so that they appear inflated.
+
+1. Simulation studies of prediction models with binary outcomes suggested that as a rule of thumb that we should observe at least 10 EPV, sometimes 20+, to avoid overfitting and unstable coefficient estimates. In fact it is suggested that for EPV smaller than 20 "shrinkage" of regression coefficients should be applied to reduce the chance of overfitting. [https://onlinelibrary.wiley.com/doi/full/10.1002/sim.8063]
+
+2 . We should also evaluate the precision of estimates (SE). Among the transitions that are unlikely affected by separation or quasi-separation,
+we can look at t-value (|Coefficient|/SE) to assess the general significance of the coefficient.
+
+
+* |Coefficient|/SE < 1  : generally unreliable 
+* 1 < |Coefficient|/SE < 2  : could be marginally reliable
+* |Coefficient|/SE > 2  : generally reliable
+
+
+```{r echo=FALSE}
+################# transition predictions
+#for(start_state in 1:4) {
+#  cat("\nTransitions FROM State", start_state, ":\n")
+#  print(Total_Effects_fit$Ga[,,start_state])
+#}
+
+# No need to manually calculate trans_probs anymore!
+#covariates<-c("partnerNo-partner")
+
+###################################################################################################################
+##### Multilogit METHOD
+###################################################################################################################
+
+
+##### Direct Effects
+Total_Effects_fit %>% plot(what = "CondProb")
+mtext("Model:Total_Effects_fit", side = 3, line = -8, adj = 1)
+
+results_TE<-list()
+Allvarnames_TE<-(Total_Effects_fit$Ga[,,1] %>% row.names())[-1]
+for (state in 1:4) {
+  results_TE[[state]] <- transition_Diagnostics_multilogit(Total_Effects_fit, state, Allvarnames_TE, TE_Nobs_trans_between_states)
+}
+summary_table_TE <- dplyr::bind_rows(results_TE)
+
+summary_table_TE <- summary_table_TE %>% 
+  arrange(Sep_Flag,varname,Transition)  %>% filter(grepl("^part", varname))
+
+##### Direct Effects
+Direct_Effects_fit %>% plot(what = "CondProb")
+mtext("Model:Direct_Effects_fit", side = 3, line = -8, adj = 1)
+
+results_DE<-list()
+Allvarnames_DE<-(Direct_Effects_fit$Ga[,,1] %>% row.names())[-1]
+for (state in 1:4) {
+  results_DE[[state]] <- transition_Diagnostics_multilogit(Direct_Effects_fit, state, Allvarnames_DE, DE_Nobs_trans_between_states)
+}
+summary_table_DE <- dplyr::bind_rows(results_DE)
+
+summary_table_DE <- summary_table_DE %>% 
+  arrange(Sep_Flag,varname,Transition) %>% filter(grepl("^part", varname)) 
+```
+
+
+###All Transitions to chronic pain TE vs DE
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+ summary_table_TE %>% filter(EPV>20) %>% kable (caption = "Total Effect of Partnership status on transitions propabilities (EPV > 20)")
+ summary_table_TE %>% filter(Transition == "1 -> 4" | 
+                             Transition == "2 -> 4" |
+                             Transition == "3 -> 4") %>% arrange(Transition,varname) %>% kable (caption = "Total Effect of Partnership status on transitions propabilities to HICP")
+ 
+ summary_table_TE %>% filter(Transition == "4 -> 1" | 
+                             Transition == "4 -> 2" |
+                             Transition == "4 -> 3") %>% arrange(Transition,varname) %>% kable (caption = "Total Effect of Partnership status on transitions propabilities from HICP")
+
+
+ summary_table_DE %>% filter(EPV>20) %>%  kable (caption = "Direct Effect of Partnership status on transitions propabilities (EPV > 20)")
+ summary_table_DE %>% filter(Transition == "1 -> 4" | 
+                             Transition == "2 -> 4" |
+                             Transition == "3 -> 4") %>% arrange(Transition,varname) %>%   kable (caption = "Direct Effect of Partnership status on transitions propabilities to HICP")
+ 
+ summary_table_DE %>% filter(Transition == "4 -> 1" | 
+                             Transition == "4 -> 2" |
+                             Transition == "4 -> 3") %>% arrange(Transition,varname) %>% kable (caption = "Total Effect of Partnership status on transitions propabilities from HICP")
+
+```
+
+
+
+
+
+# CONCLUSION
+
+[This needs more work]
+
+Using these ORs we can quantify the magnitude and significance of these effects on transition risk in a clinically interpretable way.
+
+* **Partnership protects against worsening transitions**, partially explained by emotional factors (depression/loneliness), but retains an independent protective effect.
+
+
+
+## Sex Moderation Model
+To test for sex-specific differences, moderation models further augment the TE structure by adding two interaction terms:
+
+1. *MaritalStrain×Male* tests whether the within-partner strain slope differs by sex.
+2. *Partner×Male* tests whether the baseline shift from no partner to partner (at strain=0) differs by sex.
+
+Formally in the moderation model:
+
+Marital strain effect for females = $\beta_{MaritalStrain6}$
+Marital strain effect for males   = $\beta_{MaritalStrain6} + \beta_{strainXmale}$
+
+This artifact allows to observe the differences in slope for two sex allocations.
+
+Implied assumptions:
+1. partner is binary (0=no partner, 1=partner).
+2. MaritalStrain6 is defined only for partnered participants and set to 0 when partner=0. So *marital strain is a within-partner slope*.
+
+Interpretation:
+* partner: this coefficient is the effect for the partnership status "having a partner" (it is scored 0 for "no partner" and 1 for "partner")
+* MaritalStrain6: this coefficient is the effect for marital strain for females
+
+
+The moderation hypotheses are as follow:
+*H1.1: Sex membership implies different slopes for TE and DE of "having a partner in life" health state membership and state transition*
+*H1.2: Sex membership implies different slopes for TE and DE on marital strain state membership and health state transition*
+
+
+Together, these moderation terms allow us to examine if the associations between partnership/marital strain and health state dynamics are significantly different for males and females, rather than assuming a uniform effect across sexes. Model comparisons are used to determine whether this complexity is justified.
+
+
+### Moderation model parsimony
+
+As we add these two moration terms to our model we increase the overal complexity of the model. The aim of this paragraph is to justify the complexity of the moderation structure we defined in our hypothesis. We start bu exploring the added value of the sex as a moderator in Total Effect model. In order to promote model parsimony and detect which moderation is carrying signal, we test the full TE model against set of three simplified TE models:
+
+* full_mod: a full TE model which includes both partnerXsex and stranXsex interactions (joint moderation)
+* Part_mod: a reduced TE model which includes only partnerXsex interaction and excludes strainXsex
+* strain_mod:  a reduced TE model which includes only strainXsex interaction and excludes partnerXsex
+* simple_mod:  a reduced TE model which excludes both interaction
+
+both are respectively compared against the full model ( the model that includes both moderators)
+
+
+```{r, echo=FALSE}
+full_mod_vars<-c(TE_initial_prob_vars,"Mstrain_x_male","Partner_x_male")
+Part_mod_vars  <-c(TE_initial_prob_vars,"Partner_x_male")
+strain_mod_vars<-c(TE_initial_prob_vars,"Mstrain_x_male")
+simple_mod_vars<-c(TE_initial_prob_vars)
+
+fmLatent_TE_Part_mod <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                                LatentInitial = Part_mod_vars,
+                                LatentTransition =simple_mod_vars
+)
+
+fmLatent_TE_strain_mod <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                                LatentInitial = strain_mod_vars,
+                                LatentTransition =simple_mod_vars
+)
+
+fmLatent_TE_simple_mod <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                                LatentInitial = simple_mod_vars,
+                                LatentTransition =simple_mod_vars
+)
+
+
+fmLatent_TE_full <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                                LatentInitial = full_mod_vars,
+                                LatentTransition =simple_mod_vars
+)
+
+
+
+```
+
+
+```{r,echo=FALSE,eval=FALSE, warning=FALSE,message=FALSE,error=FALSE,results='hide'}
+# Define all model configurations. These are the models that will be run in parallell
+# Do not omit any of the fields below. responseforumala and latent formula should 
+# be lmestformula() objects:
+
+# name = "",
+# descri = "",
+# responsesFormula = fmLatent_TE_full$responsesFormula,  
+# latentFormula = fmLatent_TE_full$latentFormula,
+# save_FULLpath = paste0(paper1_MODELS_rds_path, "TEST_TE_full_wealth_log.rds"),
+
+ model_configs <- list(
+    mod2_Mlog_TE_full = list(
+      name = "TE_full",
+      description = "Full TE model with all predictors",
+      responsesFormula = fmLatent_TE_full$responsesFormula,
+      latentFormula = fmLatent_TE_full$latentFormula,
+      save_FULLpath = paste0(paper1_MODELS_rds_path, "TEST_TE_full_wealth_log.rds")
+    ),
+    mod2_Mlog_TE_simple_mod = list(
+      name = "TE_simple_mod",
+      description = "Simple TE model (core TE_initial_prob_vars only)",
+      responsesFormula = fmLatent_TE_simple_mod$responsesFormula,
+      latentFormula = fmLatent_TE_simple_mod$latentFormula,
+      save_FULLpath = paste0(paper1_MODELS_rds_path, "TEST_TE_simple_wealth_log.rds")
+    ),
+    mod2_Mlog_TE_Part_mod = list(
+      name = "TE_Part_mod",
+      description = "TE model with Partner_x_male interaction (core + Partner_x_male)",
+      responsesFormula = fmLatent_TE_Part_mod$responsesFormula,
+      latentFormula = fmLatent_TE_Part_mod$latentFormula,
+      save_FULLpath = paste0(paper1_MODELS_rds_path, "TEST_TE_Part_mod_wealth_log.rds")
+    ),
+    mod2_Mlog_TE_strain_mod = list(
+      name = "TE_strain_mod",
+      description = "TE model with Mstrain_x_male interaction (core + Mstrain_x_male)",
+      responsesFormula = fmLatent_TE_strain_mod$responsesFormula,
+      latentFormula = fmLatent_TE_strain_mod$latentFormula,
+      save_FULLpath = paste0(paper1_MODELS_rds_path, "TEST_TE_strain_mod_wealth_log.rds")
+    )
+  )
+
+
+TEST_MODERATION_parallel_output <- run_LMEST_models_parallel(model_configs = model_configs, 
+                                               log_path = paste0(paper1_MODELS_rds_path,"logs/"), # remember to create this directory
+                                               save_path = paper1_MODELS_rds_path, 
+                                               data = LTAdata_long,
+                                               modBasic = 1,
+                                               paramLatent = "multilogit",
+                                               maxit = 10000,
+                                               start = 1,
+                                               ntry = 1, # total random start iterations is k * ntry + 1 deterministic 
+                                               k = 3,
+                                               tol = 1e-8,
+                                               stability_tol = 5, # this is to compare the differences in ll between random tries, check the output to see if needs adjusting
+                                               save_models = TRUE)
+
+#TE_DE_parallel_output$models$TE$rep_plot
+
+
+timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+saveRDS(TE_MODERATION_parallel_output,paste0(paper1_MODELS_rds_path,"TEST_MODERATION_parallel_output",timestamp_suffix,".rds"))
+
+```
+
+
+
+```{r,echo=FALSE, eval=T, warning=FALSE,message=FALSE,error=FALSE}
+### Load the models to prevent re-run everything!
+#mod2_Mlog_TE_full<-readRDS(paste0(paper1_MODELS_rds_path,"MOD.TEST_TE_full_mod.rds"))
+TE_MODERATION_parallel_output<-readRDS(paste0(paper1_MODELS_rds_path,"/moderation_models/TEST_MODERATION_parallel_output.rds"))
+mod2_Mlog_TE_full<-      readRDS(paste0(paper1_MODELS_rds_path,"/moderation_models/TEST_TE_full_wealth_log.rds"))
+mod2_Mlog_TE_Part_mod<-  readRDS(paste0(paper1_MODELS_rds_path,"/moderation_models/TEST_TE_Part_mod_wealth_log.rds"))
+mod2_Mlog_TE_strain_mod<-readRDS(paste0(paper1_MODELS_rds_path,"/moderation_models/TEST_TE_strain_mod_wealth_log.rds"))
+mod2_Mlog_TE_simple_mod<-readRDS(paste0(paper1_MODELS_rds_path,"/moderation_models/TEST_TE_simple_wealth_log.rds"))
+
+
+TE_MODERATION_parallel_output$models$TE_full$rep_plot
+TE_MODERATION_parallel_output$models$TE_strain_mod$rep_plot
+TE_MODERATION_parallel_output$models$TE_Part_mod$rep_plot
+TE_MODERATION_parallel_output$models$TE_simple_mod$rep_plot
+
+
+LR_TE_Part_mod <- 2 * (mod2_Mlog_TE_full$lk - mod2_Mlog_TE_Part_mod$lk)
+df_TE_Part_mod <- mod2_Mlog_TE_full$np - mod2_Mlog_TE_Part_mod$np  # np_full − np_noExpBlock as reported by LMest
+p_TE_Part_mod  <- pchisq(LR_TE_Part_mod, df = df_TE_Part_mod, lower.tail = FALSE)
+
+
+LR_TE_strain_mod <- 2 * (mod2_Mlog_TE_full$lk - mod2_Mlog_TE_strain_mod$lk)
+df_TE_strain_mod <- mod2_Mlog_TE_full$np - mod2_Mlog_TE_strain_mod$np # np_full − np_noExpBlock as reported by LMest
+p_TE_strain_mod  <- pchisq(LR_TE_strain_mod, df = df_TE_strain_mod, lower.tail = FALSE)
+
+LR_TE_simple_mod <- 2 * (mod2_Mlog_TE_full$lk - mod2_Mlog_TE_simple_mod$lk)
+df_TE_simple_mod <- mod2_Mlog_TE_full$np - mod2_Mlog_TE_simple_mod$np # np_full − np_noExpBlock as reported by LMest
+p_TE_simple_mod  <- pchisq(LR_TE_simple_mod, df = df_TE_simple_mod, lower.tail = FALSE)
+
+
+cat(sprintf("full (joint moderation) vs partner moderation: χ²(df=%d) = %.2f, p = %.4g\n", 
+            df_TE_Part_mod, LR_TE_Part_mod, p_TE_Part_mod)) 
+cat(sprintf("full (joint moderation) vs marital strain moderation: χ²(df=%d) = %.2f, p = %.4g\n", 
+            df_TE_strain_mod, LR_TE_strain_mod, p_TE_strain_mod)) 
+cat(sprintf("full (joint moderation) vs simple (no moderation): χ²(df=%d) = %.2f, p = %.4g\n", 
+            df_TE_simple_mod, LR_TE_simple_mod, p_TE_simple_mod)) 
+
+vals <- data.frame(
+  Model = c("TE simple_mod", "TE Part_mod", "TE strain_mod", "TE full_mod"),
+  AIC   = c(mod2_Mlog_TE_simple_mod$aic,
+            mod2_Mlog_TE_Part_mod$aic,
+            mod2_Mlog_TE_strain_mod$aic,
+            mod2_Mlog_TE_full$aic),
+  BIC   = c(mod2_Mlog_TE_simple_mod$bic,
+            mod2_Mlog_TE_Part_mod$bic,
+            mod2_Mlog_TE_strain_mod$bic,
+            mod2_Mlog_TE_full$bic),
+  lk    = c(mod2_Mlog_TE_simple_mod$lk,
+            mod2_Mlog_TE_Part_mod$lk,
+            mod2_Mlog_TE_strain_mod$lk,
+            mod2_Mlog_TE_full$lk)
+)
+vals$DeltaAIC <- vals$AIC - min(vals$AIC, na.rm = TRUE)
+vals$DeltaBIC <- vals$BIC - min(vals$BIC, na.rm = TRUE)
+
+print(vals[order(vals$AIC), ], row.names = FALSE) %>% kable()
+
+
+
+```
+
+Here we carried out Likelihood Ratio Tests (LRT) comparing mod2_Mlog_TE_full (the fully moderated version of our model) with the three nested more simplified models we defined (mod2_Mlog_TE_Part_mod, mod2_Mlog_TE_strain_mod, mod2_Mlog_TE_simple_mod). This nesting is the key requirement to carry out this kind of standard likelihood-ratio test (LRT). If p is small (e.g., <0.05), we reject the null hypothesis that the dropped parameters are truly zero, thus in that case the full model provides a significantly better fit than the reduced (simpler) model. 
+
+
+*Joint moderation test*. Does adding both interaction improve the model compared to have not interaction terms?
+* full vs simple_mod: removing both interaction does not make the model worse than having both interaction in at the same time. we can reject the joint moderation model (`r cat(sprintf("simple_mod vs full moderation: χ²(df=%d) = %.2f, p = %.4g\n",df_TE_simple_mod, LR_TE_simple_mod, p_TE_simple_mod))`)
+
+There is no evidence that including the sex-moderated interactions improves model fit in the TE specification. The joint test comparing the fully moderated model to the version without either interaction is decisively non-significant, indicating that the interaction block as a whole is unnecessary.
+
+*Dropping one moderation term at a time*. Does removing one interaction term from full worsen the model fit?
+* full vs Partner_mod: not significant very high p-value. In this model we dropped StrainXmale and we see that Partner_mod alone carries none or very weak signal (`r cat(sprintf("Part_mod vs full moderation: χ²(df=%d) = %.2f, p = %.4g\n", df_TE_Part_mod, LR_TE_Part_mod, p_TE_Part_mod))`)
+* full vs Strain_mod: not significant very high p-value. In this model we dropped PartnerXmale and we see that StrainXmale alone carries none or very weak signal (`r cat(sprintf("strain_mod vs full moderation: χ²(df=%d) = %.2f, p = %.4g\n", df_TE_strain_mod, LR_TE_strain_mod, p_TE_strain_mod))`)
+
+Dropping each interaction individually from the full model also yields non-significant likelihood-ratio tests, showing that neither Partner×Sex nor Strain×Sex contributes incremental explanatory value when the other is retained.
+
+Information criteria orderings (AIC/BIC) favor the simpler specification, reinforcing that removing the moderation terms achieves greater parsimony without a significant sacrifice in terms of fit.
+
+
+Conclusion: These results indicate that sex does not moderate the associations between partner status or marital strain and TE class membership/transitions in this dataset. We can reject both moderation hypothesis. Accordingly, the more parsimonious TE model without the two sex-moderated interactions is preferred for inference and reporting. 
+
+
+#### Reordering _noExpBlock states
+```{r,echo=FALSE, eval=T, warning=FALSE,message=FALSE,error=FALSE}
+###########################################
+############# We do the same for the models TE and DE labels as "_noExpBlock"
+############# These models are used later on in the pipeline when we test the 
+############# the overall contribution of the exposure to the model fit
+
+#plot(Total_Effects_fit_noExpBlock, what="CondProb")
+#plot(Direct_Effects_fit_noExpBlock, what="CondProb")
+
+TE_ordering_noExpBlock <- Determine_state_ordering(Total_Effects_fit_noExpBlock, 
+                                        c("lvimp_shifted_cat", "painchr_ext"))
+state_order_TE_noExpBlock<-TE_ordering_noExpBlock$severity_order
+# rebased Be and Ga
+Be_rebased_TE_noExpBlock <- rebase_Be_latent_coefficients(Total_Effects_fit_noExpBlock, state_order_TE_noExpBlock)
+Ga_rebased_TE_noExpBlock <- rebase_Ga_transition_coefficients(Total_Effects_fit_noExpBlock$Ga, state_order_TE_noExpBlock)
+# PSI, PIV, PI for TE 
+Psi_reordered_TE_noExpBlock <- Total_Effects_fit_noExpBlock$Psi[, state_order_TE_noExpBlock, , drop = FALSE]
+    dimnames(Psi_reordered_TE)[[2]] <- as.numeric(1:k)
+
+################################################################################
+##### Direct Effects no exp block: state reordering
+DE_ordering_noExpBlock <- Determine_state_ordering(Direct_Effects_fit_noExpBlock, 
+                                                   c("lvimp_shifted_cat", "painchr_ext"))
+state_order_DE_noExpBlock<-DE_ordering_noExpBlock$severity_order
+
+Be_rebased_DE_noExpBlock <- rebase_Be_latent_coefficients(Direct_Effects_fit_noExpBlock, state_order_DE_noExpBlock)
+Ga_rebased_DE_noExpBlock <- rebase_Ga_transition_coefficients(Direct_Effects_fit_noExpBlock$Ga, state_order_DE_noExpBlock)
+
+# Same three steps for the direct effects DE
+Psi_reordered_DE_noExpBlock <- Direct_Effects_fit_noExpBlock$Psi[, state_order_DE_noExpBlock, , drop = FALSE]
+    dimnames(Psi_reordered_DE)[[2]] <- as.numeric(1:k)
+
+
+```
+
+
+```{r,echo=FALSE, eval=F, warning=FALSE,message=FALSE,error=FALSE}
+
+################################################################################
+##### Total Effects (No exp block) model refit with start =2
+NEW_startValues_TE_noExpBlock<-  list(
+  Be = Be_rebased_TE_noExpBlock,
+  Ga = Ga_rebased_TE_noExpBlock,
+  Psi = Psi_reordered_TE_noExpBlock
+)
+
+fit_reordered_TE_noExpBlock <- lmest(
+  responsesFormula = fmLatent_TE_noExpBlock$responsesFormula,
+  latentFormula = fmLatent_TE_noExpBlock$latentFormula,
+  data  = Total_Effects_fit_noExpBlock$data,
+  index = c("idauniq", "time"),  # adjust as needed
+  k = 4,
+  start = 2,
+  fort = T,
+  parInit = NEW_startValues_TE_noExpBlock,
+  output = TRUE,
+  out_se = TRUE
+)
+plot(fit_reordered_TE_noExpBlock,  what="CondProb")
+
+################################################################################
+##### Direct Effects (No exp block) model refit with start =2
+
+NEW_startValues_DE_noExpBlock<-  list(
+  Be = Be_rebased_DE_noExpBlock,
+  Ga = Ga_rebased_DE_noExpBlock,
+  Psi = Psi_reordered_DE_noExpBlock
+)
+fit_reordered_DE_noExpBlock <- lmest(
+  responsesFormula = fmLatent_DE_noExpBlock$responsesFormula,
+  latentFormula = fmLatent_DE_noExpBlock$latentFormula,
+  data  = Direct_Effects_fit_noExpBlock$data,
+  index = c("idauniq", "time"),  # adjust as needed
+  k = 4,
+  start = 2,
+  fort = T,
+  parInit = NEW_startValues_DE_noExpBlock,
+  output = TRUE,
+  out_se = TRUE
+)
+plot(fit_reordered_DE_noExpBlock,  what="CondProb")
+
+timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
+saveRDS(fit_reordered_TE_noExpBlock,paste0(paper1_MODELS_rds_path,"fit_reordered_TE_noExpBlock",timestamp_suffix,".rds"))
+saveRDS(fit_reordered_TE_noExpBlock,paste0(paper1_MODELS_rds_path,"fit_reordered_TE_noExpBlock.rds"))
+
+saveRDS(fit_reordered_DE_noExpBlock,paste0(paper1_MODELS_rds_path,"fit_reordered_DE_noExpBlock.rds"))    
+saveRDS(fit_reordered_DE_noExpBlock,paste0(paper1_MODELS_rds_path,"fit_reordered_DE_noExpBlock",timestamp_suffix,".rds"))
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+# H3.1 TE: Trasitions to Hi impact Chronic pain
+
+partnership quality and sex moderation
+
+Aftern applying latent Markov modeling to identify distinct health trajectories, with states identifying different key health statuses. We used global decoding to assign each participant's most probable state sequence across time points.
+
+Outcome definition. The primary outcome was transition to the high chronic pain state (state 4) at the subsequent time point. This binary outcome was defined as movedToHICP = 1 if to_state == 4, regardless of starting state, and 0 otherwise. Participants already in state 4 at baseline were excluded from analyses as they could not experience the outcome of interest and given their state 4 membership we assume that the mechanisms for transitioning to state 4 are different to those of staying in state 4.
+
+Exposure and covariates. The primary exposure was social support status (supportive partnership, strained support, no partner). We included time-varying confounders measured at each wave: multimorbidity count, standardized age, sex, and wealth quintile (membership to the most deprived quintile). Starting health state and time period were included as fixed effects to control for baseline risk heterogeneity and temporal trends.
+
+Statistical analysis. We used logistic regression to estimate the association between social support and transitions to high chronic pain. The analytical dataset comprised person-intervals where each participant contributed up to [N-1] transition opportunities. Standard errors were clustered by individual to account for within-person correlation across intervals.
+
+We tested for effect modification by sex using likelihood ratio tests comparing models with and without interaction terms. Model assumptions were assessed through residual diagnostics and influence statistics.
+Analytic sample. After excluding participants in state 4 at baseline and those with missing covariate data, the final sample included [N] person-intervals from [N] individuals, with [N] transitions to state 4 observed.
+
+
+
+```{r echo = F}
+
+#############################################################
+#################### TOTAL EFFECTS: ANY TRANSITION TO HICP
+#############################################################
+
+# latent sequencing via global decoding
+latseq <- lmestDecoding(Total_Effects_fit)$Ug  # global decoded sequences matrix (individuals × time)
+
+id_order <- unique(LTAdata_long$idauniq)  # ensure we get the idauniq sequence from LTAlong
+
+decoded_df <- as.data.frame(latseq)
+colnames(decoded_df) <- paste0("time", seq_len(ncol(decoded_df)))
+decoded_df$idauniq <- id_order
+
+decoded_long_te <- decoded_df %>%
+  pivot_longer(starts_with("time"),
+               names_to = "time",
+               values_to = "state") %>%
+  mutate(
+    time = as.integer(gsub("time", "", time)),
+    state = as.integer(state)
+  )
+
+
+# Merge decoded most-probable states to our original LTAdata_long dataset
+LTA_with_state <- LTAdata_long %>%
+  left_join(decoded_long_te, by = c("idauniq","time"))
+
+# Build interval-level dataset: this is just the transitions dataset 
+# therefore for each respondent there are 2 rows t1->t2 and t2->t3
+interval_df <- LTA_with_state %>%
+  arrange(idauniq, time) %>% # Sort data by individual and time in ascending order (smaller time -> earlier wave)
+  group_by(idauniq) %>%      # Group data so operations happen within each individual
+  mutate(
+    from_state  = state, # Create a column with "current" (time t) latent state
+    # lead return the "next" value among those available in an array e.g.:
+    # lead(c(1,2,3,4)
+    # Output:
+    #   2 3 4 NA
+    to_state = lead(state), # Create a column with "next" (time t+1) latent state within each individual
+    from_time  = time,      # We do not use this column, I only add it for clarity
+    to_time  = lead(time)   # Create a column with the next time point within each individual
+  ) %>%
+  ungroup() %>%
+  filter(!is.na(to_state)) %>%              # keep valid intervals
+  mutate(
+    worsening = as.integer(to_state > from_state),
+    movedToHICP = as.integer(to_state == 4),
+    # adding major worsening: (Sam's Idea)
+    #worsening_major = as.integer(state_t1 >= state_t + 2),
+    worsening_major = as.integer(to_state >= from_state + 2),
+    from_state = factor(from_state),
+    time    = factor(time)
+  ) %>% filter(from_state != 4)
+
+# Define covariates at time t (same set you used in LMest transition part)
+confounders_t <- c("MLTC","raagey_z","Sex_BIN","wealthQ_bin") #"wealthQ_bin" is an leternative to nettotw_s_log
+moderated_exposure<-"partner:Sex_BIN"
+exposure<-"partner"
+
+rhs_te <- c(exposure,confounders_t, "from_state", "time")
+rhs_te_mod <- c(moderated_exposure,confounders_t, "from_state", "time")
+
+run_pooled_worsening_LRT <- function(df, rhs_te, rhs_te_mod) {
+  formula_te      <- as.formula(paste("movedToHICP ~", paste(rhs_te, collapse=" + ")))
+  formula_te_mod  <- as.formula(paste("movedToHICP ~", paste(rhs_te_mod, collapse=" + ")))
+  formula_te_noExpBlock <- as.formula(paste("movedToHICP ~", paste(setdiff(rhs_te, exposure), collapse=" + ")))
+
+  te    <- glm(formula_te,    family = binomial(), data = df)
+  te_mod<- glm(formula_te_mod,    family = binomial(), data = df)
+  te_noExpBlock <- glm(formula_te_noExpBlock, family = binomial(), data = df)
+
+  LR_TE_mod <- 2 * (as.numeric(logLik(te_mod)) - as.numeric(logLik(te)))
+  df_TE_mod <- attr(logLik(te_mod),"df") - attr(logLik(te),"df")
+  p_TE_mod  <- pchisq(LR_TE_mod, df = df_TE_mod, lower.tail = FALSE)
+  
+  LR_TE <- 2 * (as.numeric(logLik(te)) - as.numeric(logLik(te_noExpBlock)))
+  df_TE <- attr(logLik(te),"df") - attr(logLik(te_noExpBlock),"df")
+  p_TE  <- pchisq(LR_TE, df = df_TE, lower.tail = FALSE)
+  
+  
+  list(
+    te = te, te_mod = te_mod,
+    lrt = data.frame(model=c("TE vs TE_noExpBlock","TE_mod vs TE"), LR=c(LR_TE, LR_TE_mod), df=c(df_TE, df_TE_mod), p=c(p_TE, p_TE_mod))
+  )
+}
+
+res_TE <- run_pooled_worsening_LRT(interval_df, rhs_te, rhs_te_mod)
+print(res_TE$lrt)
+# Test whether removing partner status significantly reduces model fit for 
+# predicting worsening transitions **without adjusting for depression and loneliness.**
+cat(sprintf("TE vs TE_noExpBlock: χ²(df=%d)=%.2f, p=%.4g\n", res_TE$lrt$df[1], res_TE$lrt$LR[1], res_TE$lrt$p[1]))
+# Test whether jointly removing partner status significantly reduces model fit 
+# for predicting worsening transitions **after adjusting for depression and loneliness.**
+cat(sprintf("TE_mod vs TE: χ²(df=%d)=%.2f, p=%.4g\n", res_TE$lrt$df[2], res_TE$lrt$LR[2], res_TE$lrt$p[2]))
+
+summary(res_TE$te)
+summary(res_TE$te_mod)
+
+#library(performance)
+#check_model(res$te)
+#check_model(res$de)
+
+
+
+```
+
+
+## TE: Joint transition ORs (pooled "any transition to HICP")
+
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+to_or <- function(fit) {
+  s <- coef(summary(fit))
+  tn <- rownames(s)
+  keep<- grepl("^ssupport6_cat", tn)
+  data.frame(
+    term = tn[keep],
+    OR   = exp(s[keep,"Estimate"]) %>% round(2),
+    LCL  = exp(s[keep,"Estimate"] - 1.96*s[keep,"Std. Error"]) %>% round(3),
+    UCL  = exp(s[keep,"Estimate"] + 1.96*s[keep,"Std. Error"]) %>% round(3),
+    p    = s[keep,"Pr(>|z|)"] %>% round(3),
+    row.names = NULL
+  )
+}
+```
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+cat("\nTE (Transitions to hi impact) ORs:\n"); print(to_or(res_TE$te) %>% arrange(term))
+
+cat("\nTE (Transitions to hi impact) ORs:\n"); print(to_or(res_TE$te_mod)%>% arrange(term))
+
+```
+
+**In the Total Effects model**
+
+* Having a partner is associated with 40% lower odds of worsening transitions (States worsening), strongly significant.
+* Each unit increase in marital strain is associated with a 21% increase in odds of worsening, significant.
+
+
+
+
+# H3.2 DE: Trasitions to Hi impact Chronic pain
+partnership quality and sex moderation
+
+
+
+```{r echo = F}
+
+#############################################################
+#################### DIRECT EFFECTS: ANY TRANSITION TO HICP
+#############################################################
+
+# latent sequencing via global decoding
+latseq_DE <- lmestDecoding(Direct_Effects_fit)$Ug  # global decoded sequences matrix (individuals × time)
+
+id_order <- unique(LTAdata_long$idauniq)  # ensure we get the idauniq sequence from LTAlong
+
+decoded_df_DE <- as.data.frame(latseq_DE)
+colnames(decoded_df_DE) <- paste0("time", seq_len(ncol(decoded_df_DE)))
+decoded_df_DE$idauniq <- id_order
+
+decoded_long_de <- decoded_df_DE %>%
+  pivot_longer(starts_with("time"),
+               names_to = "time",
+               values_to = "state") %>%
+  mutate(
+    time = as.integer(gsub("time", "", time)),
+    state = as.integer(state)
+  )
+
+
+# Merge decoded most-probable states to our original LTAdata_long dataset
+LTA_with_state_DE <- LTAdata_long %>%
+  left_join(decoded_long_de, by = c("idauniq","time"))
+
+# Build interval-level dataset: this is just the transitions dataset 
+# therefore for each respondent there are 2 rows t1->t2 and t2->t3
+interval_df <- LTA_with_state_DE %>%
+  arrange(idauniq, time) %>% # Sort data by individual and time in ascending order (smaller time -> earlier wave)
+  group_by(idauniq) %>%      # Group data so operations happen within each individual
+  mutate(
+    from_state  = state, # Create a column with "current" (time t) latent state
+    # lead return the "next" value among those available in an array e.g.:
+    # lead(c(1,2,3,4)
+    # Output:
+    #   2 3 4 NA
+    to_state = lead(state), # Create a column with "next" (time t+1) latent state within each individual
+    from_time  = time,      # We do not use this column, I only add it for clarity
+    to_time  = lead(time)   # Create a column with the next time point within each individual
+  ) %>%
+  ungroup() %>%
+  filter(!is.na(to_state)) %>%              # keep valid intervals
+  mutate(
+    worsening = as.integer(to_state > from_state),
+    movedToHICP = as.integer(to_state == 4),
+    # adding major worsening: (Sam's Idea)
+    #worsening_major = as.integer(state_t1 >= state_t + 2),
+    worsening_major = as.integer(to_state >= from_state + 2),
+    from_state = factor(from_state),
+    time    = factor(time)
+  ) %>% filter(from_state != 4)
+
+# Define covariates at time t (same set you used in LMest transition part)
+confounders_t <- c("MLTC","raagey_z","Sex_BIN","wealthQ_bin","cesd_lat_shifted","lnlys") #"wealthQ_bin" is an leternative to nettotw_s_log
+moderated_exposure<-"ssupport6_cat:Sex_BIN"
+exposure<-"ssupport6_cat"
+
+rhs_de <- c(exposure,confounders_t, "from_state", "time")
+rhs_de_mod <- c(moderated_exposure,confounders_t, "from_state", "time")
+
+run_pooled_worsening_LRT <- function(df, rhs_de, rhs_de_mod) {
+  formula_de      <- as.formula(paste("movedToHICP ~", paste(rhs_de, collapse=" + ")))
+  formula_de_mod  <- as.formula(paste("movedToHICP ~", paste(rhs_de_mod, collapse=" + ")))
+  formula_de_noExpBlock <- as.formula(paste("movedToHICP ~", paste(setdiff(rhs_de, exposure), collapse=" + ")))
+
+  de    <- glm(formula_de,    family = binomial(), data = df)
+  de_mod<- glm(formula_de_mod,    family = binomial(), data = df)
+  de_noExpBlock <- glm(formula_de_noExpBlock, family = binomial(), data = df)
+
+  LR_DE_mod <- 2 * (as.numeric(logLik(de_mod)) - as.numeric(logLik(de)))
+  df_DE_mod <- attr(logLik(de_mod),"df") - attr(logLik(de),"df")
+  p_DE_mod  <- pchisq(LR_DE_mod, df = df_DE_mod, lower.tail = FALSE)
+  
+  LR_DE <- 2 * (as.numeric(logLik(de)) - as.numeric(logLik(de_noExpBlock)))
+  df_DE <- attr(logLik(de),"df") - attr(logLik(de_noExpBlock),"df")
+  p_DE  <- pchisq(LR_DE, df = df_DE, lower.tail = FALSE)
+  
+  
+  list(
+    de = de, de_mod = de_mod,
+    lrt = data.frame(model=c("DE vs DE_noExpBlock","DE_mod vs DE"), LR=c(LR_DE, LR_DE), df=c(df_DE, df_DE_mod), p=c(p_DE, p_DE_mod))
+  )
+}
+
+res <- run_pooled_worsening_LRT(interval_df, rhs_de, rhs_de_mod)
+print(res$lrt)
+# Test whether removing partner status significantly reduces model fit for 
+# predicting worsening transitions **without adjusting for depression and loneliness.**
+cat(sprintf("DE vs DE_noExpBlock: χ²(df=%d)=%.2f, p=%.4g\n", res$lrt$df[1], res$lrt$LR[1], res$lrt$p[1]))
+# Test whether jointly removing partner status significantly reduces model fit 
+# for predicting worsening transitions **after adjusting for depression and loneliness.**
+cat(sprintf("DE_mod vs DE: χ²(df=%d)=%.2f, p=%.4g\n", res$lrt$df[2], res$lrt$LR[2], res$lrt$p[2]))
+
+summary(res$de)
+summary(res$de_mod)
+
+#library(performance)
+#check_model(res$te)
+#check_model(res$de)
+
+
+
+```
+
+## DE: Joint transition ORs (pooled "any transition to HICP")
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+to_or <- function(fit) {
+  s <- coef(summary(fit))
+  tn <- rownames(s)
+  keep<- grepl("^ssupport6_cat", tn)
+  data.frame(
+    term = tn[keep],
+    OR   = exp(s[keep,"Estimate"]) %>% round(2),
+    LCL  = exp(s[keep,"Estimate"] - 1.96*s[keep,"Std. Error"]) %>% round(3),
+    UCL  = exp(s[keep,"Estimate"] + 1.96*s[keep,"Std. Error"]) %>% round(3),
+    p    = s[keep,"Pr(>|z|)"] %>% round(3),
+    row.names = NULL
+  )
+}
+```
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+cat("\nTE (Transitions to hi impact) ORs:\n"); print(to_or(res$de) %>% arrange(term))
+```
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+cat("\nTE (Transitions to hi impact) ORs:\n"); print(to_or(res$de_mod)%>% arrange(term))
+```
+**In the Direct Effects model**
+
+* Adjusting for depression and loneliness attenuates the direct protective effect of partnership, reducing it from a 40% lower odds of worsening in the TE model to a 28% lower odds in the DE model. This represents a one-third reduction of the total protective effect observed in the TE model.
+* Similarly, the effect of marital strain on worsening transitions is reduced after adjustment but remains statistically significant. In the DE model, each unit increase in marital strain (on a 0 to 4 scale) is associated with a 13% increase in odds of worsening, corresponding to a 40% reduction compared to the 21% increase observed in the TE model.
+
+
+
+
+
+
+

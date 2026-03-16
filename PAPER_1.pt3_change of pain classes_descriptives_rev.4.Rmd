@@ -1,0 +1,1495 @@
+---
+title: "Change of Pain classes - Descriptive stats and Table 1"
+author: "Diego Vitali"
+output: 
+  github_document:
+    toc: True
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+editor_options: 
+  markdown: 
+    wrap: 72
+bibliography: references.bib
+---
+
+```{r setup, eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(naniar)
+library(NbClust)
+library(readr)
+library(polycor)
+library(patchwork)
+library(corrplot)
+library(GGally)
+
+source("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/Sources/Paper1_func.R")
+
+```
+
+```{r eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
+
+# refreshments: 3, 4, 6, 7, 9 and 10
+
+# Nurse Visits: 2,4,6,8,9
+
+H_elsa_w4_6<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/H_elsa_w4_6.rds")
+H_elsa_w1<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/H_elsa_w1.rds")
+
+## imputed dataset
+Imputed_datasets<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/mice_imputationlong_rev4.rds")
+
+```
+
+# Introduction
+
+Chronic pain is a complex and pervasive health issue with substantial impact on the daily lives of people with pain and those around them. Understanding of the variables that affect progression of pain over time is very patchy. States of pain and pain impact (Eccleston et al. 2023) are a way to study transitions in pain: worsening, improvement, or stasis. Longitudinal studies are needed to capture these transitions over extended periods.
+
+Interactions between people in pain and their spouses or partners has conventionally been framed in operant terms, associating positive reinforcement (“solicitous behaviour”: caring, helping, etc) of behaviors that communicate pain with greater disability, and negative reinforcement (“punishing behaviour”: ignoring, criticising, etc.) of these behaviors with less disability (Fordyce 1976; Flor, Kerns, Turk 1987; Romano et al. 1992). Many such associations were drawn from cross-sectional studies, so could also represent greater help from the partner to the more disabled person with pain. They were also moderated by important variables such as sex/gender and relationship quality (Flor, Turk, Rudy 1989). A diary study showed greater pain expression by the person in pain to be followed both by supportive and negative spouse responses (Burns et al. 2015).
+
+This contrasted with theories and data in the broader health field whereby partner support was associated with better, not worse, function of the affected individual (Clark et al. 2018; Jamison & Virts 1990), interpreted using models of intimacy, validation, and stress management (Cano & Williams 2010; Clark et al. 2018). Further, negative partner responses to pain expression were associated with greater distress of both partners and poorer marital satisfaction. A vignette study of people with chronic pain and their spouses (Newton-John & Williams 2000) showed a much wider range of responses than usually sampled, including expressing confidence in the person with pain, waiting to see if help needed, and problem-solving. These three, all possible aids to emotion regulation (Koechlin et al. 2018) ,were most highly valued by people with pain, while provision of (unrequested) help - a common response – made them feel ‘useless’. A recent narrative review (Birkinshaw et al. 2025) of longitudinal studies found that the evidence on partner interactions in pain was scarce and could not support any clear conclusions. Having no partner might also affect pain impact through mood, loneliness, availability of help, or a variety of other possible mechanisms (Birkinshaw et al. 2025).
+
+Any analysis of longitudinal change in pain needs to take into account distress: depression is both a predictor of pain (Croft et al. 1995; Falasinnu et al. 2023; Kroenke et al. 2011; Tanguay-Sabourin et al. 2023) and of pain impact (Poole & Steptoe 2018) and a consequence (Blanchflower & Bryson 2022; Kroenke et al. 2011; Mills et al. 2019). Social isolation also contributes to pain impact (Karayannis et al. 2019). Socioeconomic status and wealth, both somewhat neglected in the study of chronic pain, are also implicated, with deprived populations mostly likely to develop chronic pain, and for that pain to be more severe and disabling (Croft & Rigby 1994; Mills et al. 2019), consistent with many chronic disorders (Barnett et al., 2012; Marmot et al., 2020).
+
+We therefore used our characterisation of pain and pain impact as states and transitions, over four years of a large longitudinal cohort, to address (1) whether having a partner vs not having a partner was associated with particular states or transitions; (2) whether poor partner support was associated with worse states and higher likelihood of transition to worse state; and (3)
+
+whether having vs not having a partner, and quality of partner support, explained unique variance in states and transitions beyond sociodemographic and baseline health covariates of depression, loneliness, and wealth.
+
+## Primary hypotheses:
+1. $H_1$ (Partnership and Support Quality): Latent health state membership and/or transition probabilities differ across the three partnership/support categories (no partner, above median support, below median support). Specifically, having a supportive or less than supportive partner is associated with distinct latent health states and transition patterns compared to having no partner.
+2. $H_2$ (Joint Effect Beyond Covariates): The categorical partnership/support variable explains unique variance in latent state membership and transitions beyond sociodemographic factors, baseline health covariates, and sex.
+3. $H_3$ (Sex Moderation) The effects of partnership/support category on latent state membership and transitions differ between men and women; i.e., sex moderates the associations between partnership/support quality and latent health trajectories.
+
+Recent work by [@tanguay2023prognostic] demonstrated that mood is one of the strongest predictors of pain spreading and of worse chronic pain outcomes overtime
+
+# Methods
+
+## Study population
+
+This study analysed data from the English Longitudinal Study of Ageing (ELSA), a large, nationally representative cohort designed to investigate aging-related health, social, and economic factors among adults aged 50 and over in England. ELSA  assessed at regular intervals (waves), providing repeated measures of physical health, psychosocial variables, and socioeconomic status. This rich longitudinal dataset enables the study of dynamic trajectories in health outcomes, including chronic pain and its impact on daily functioning.
+
+## Sample and measures
+
+The analytic sample comprised participants aged 50 years and older at Wave 4 (baseline for this study) who completed assessments at three consecutive waves: Wave 4, Wave 5 (approximately 2 years later), and Wave 6 (approximately 4 years after baseline). Eligible participants provided self-reported data related to pain intensity, pain duration, and the number of pain sites, enabling precise diagnostic characterization of acute versus chronic pain states. In addition, an item response theory (IRT)-based continuous measure captured the health impact of pain, reflecting impairments in self-care and productivity. Covariates assessed at baseline included demographic characteristics (age, sex), socioeconomic indicators (wealth quintiles, education), health behaviors (smoking, physical activity), psychological measures (depression, loneliness), and social factors (partner status, marital strain). Comprehensive data harmonization and multiple imputation procedures addressed missing data and optimized longitudinal analyses. The study applied latent transition analysis to identify distinct health states that capture both the presence of chronic pain and the experience of impact on daily activity and work experience by respondents. The latent transition analysis then allowed to study pain trajectories and examine predictors of transitions between health states over the 4 year period time. 
+
+
+### Outcome Measures
+
+#### Chronic Pain indicator variables
+
+Two categorical pain indicator variables were included in the LTA model
+of pain between Wave 4, Wave 5 and Wave 6. The first variable classifies
+cases between no-pain, acute pain, chronic pain; the second variable
+classifies the levels of pain on whether they are at least moderate or
+severe (yes or no); the third variable classifies the experience of 4
+levels of difficulty of the respondent in carrying out daily self-care
+and productivity activities.
+
+Chronic pain variables:
+
+-   hepain "*are you often troubled by pain*"
+    -   Yes/No
+-   hepain "*How bad is the pain most of the time?*"
+    -   Mild
+    -   Moderate
+    -   Severe
+-   hepag "*How long has the pain been bothering you? Has it been...*"
+    -   ...less than 3 months,
+    -   more than 3 months, but less than 6 months,
+    -   more than 6 months, but less than 12 months,
+    -   or more than 12 months?
+
+If pain has been present over a period of 3 months or longer we consider
+this as chronic pain.
+
+From these items we derive two indicators:
+
+1.  *rXpainchr* as a 3 category variable:
+    -   0: No pain
+    -   1: Acute pain (persisting \<3m)
+    -   2: Chroni pain (persisting \>=3m)
+2.  *rXpainsev* as 2 category variable
+    -   0: no pain or mild aches
+    -   1: moderate or severe pain
+    
+#### Pain Spread
+
+Number of pain sites each wave detected with the following items at wave
+4,5, and 6
+
+-   hepawba *Whether feel pain in back*
+-   hepawhi *Whether feel pain in hips*
+-   hepawkn *Whether feel pain in knees*
+-   hepawfe *Whether feel pain in feet*
+-   hepawmo *Whether feel pain in mouth or teeth*
+-   hepawot *Whether feel pain elsewhere*
+-   hepawal *Whether feel pain all over*
+
+#### Health Impact variables:
+
+The continuous measure of Health impact is an IRT-based measure that
+shows evidence of scalar and metric invariace in this dataset (see
+supplementary material on measurement invariance). However, this measure
+is zero inflated and visual examination of the density plot shows
+potential multimodality. In order to better capture the multimodalily of
+measurement values, we will parametrise (via [clustering][3]) the
+scoring of this variable into a categorical variable with $n$ levels.
+following 3 steps:
+
+1.  we separate the "zeros" (which represent the respondents who did not
+    present limitations with the life activities proposed in the health
+    impact questionnaire);
+2.  We use NbClust [@charrad2014nbclust] to examine the remaining
+    (non-zero) portion of the distribution. We prioritise silhouette
+    (with a 0.5 threshold) indexes and we will handle potential
+    conflicts by chosing the more parsimonious number of cluster to
+    prevent overparametrisation and identify a most suitable number of
+    scoring clusters. 2.1 We use a PAM algorithm [@saxena2017review] to
+    determine the medioid ("center") of each cluster, and we evaluate
+    cluster validtiy via sihouette width [@arbelaitz2013extensive;
+    @rousseeuw1987silhouettes]. This procedure will help determine
+    whether the cluster solution is overparametrised or can be accepted.
+    2.2. We boostrap the final estimate of position of the medioids
+    (2000 replicates)
+3.  We use the mean bootstrapped cluster medioids determined at baseline
+    (wave 4) to parametrise the health impact measure across the two
+    subsequent waves.
+    
+
+
+### Predictors
+
+#### Partnership status
+rXpartner is a binary indicator coded 0 for no partner and 1 for having a partner
+
+#### Marital Support/Strain
+
+Marital strain is defined only for partnered individuals (and set to 0 when not partnered) so that strain represents an additional within-partner effect.
+
+rXssupport6 indicates the mean of the six different spouse questions:
+
+-   RwSUSTDFE, the respondent feels their spouse really understands the
+    way they feel about things.
+-   RwSRELY, the respondent feels they can rely on their spouse if they
+    have a serious problem.
+-   RwSOPENUP, the respondent feels they can open up to their spouse
+    when they need to talk about their worries.
+-   RwSCRITZE, the respondent feels their spouse criticizes them.
+-   RwSLETDOW the respondent feels their spouse let them down when they
+    are counting on them.
+-   RwSGETNEV the respondent feels their spouse gets on their nerves.
+
+RwSSUPPORT6 is a composite score summarizing respondents’ perceptions of 
+spousal support, derived from six questions assessing aspects of emotional 
+understanding, reliability, openness, criticism, disappointment, and annoyance 
+within the marital or partnership relationship. Each question is scored such 
+that higher values indicate greater lack of support from the spouse. Scores near 
+1 reflect high perceived support, indicating the spouse is seen as understanding,
+reliable, open to communication, and not critical or annoying. Scores near 4 indicate
+low perceived support, meaning respondents rarely feel their spouse is supportive 
+or dependable. The distribution of this score is right-skewed with median at 1.5 in each wave. 
+
+
+To model this variable meaningfully, we applied a median based parametrisatisation to divide 
+respondents into two distinct categories:
+
+* Supportive partner (lower than median RwSSUPPORT6 scores, indicating higher perceived support)
+* Strained support (higher than median RwSSUPPORT6 scores, indicating lower perceived support)
+
+This parametrisation helps transform the continuous, skewed support score into meaningful 
+and analytically useful that reflect qualitatively different partnership support experiences.
+
+### Covariates
+
+We evaluate the effect of the selected covariates at baseline on:
+
+1.  transitioning between classes, from Wave 4 (baseline) to Wave 5; and
+2.  the effect of the same covariates, this time measured at Wave 5, on
+    transitioning between classes, from Wave 5 to Wave 6.
+
+#### Demographics
+
+Demographics included:
+
+-   *rXagey* age, We categorised age into four groups (50–59; 60–69;
+    70–79; 80+). E.g [@maharani2023household]
+-   *ragender* sex (a binary variable with male as reference),
+-   *raracem* ethnicity (a binary variable with white as reference),
+-   *rXmpart* whether a respondent partnership is implied in the current
+    wave. A code of 0 indicates that the respondent is not implied to be
+    partnered while a code of 1 indicates the respondent is implied to
+    be partnered.
+
+##### Wealth
+
+-   *nettotw_bu_s*. Total net non-pension household wealth
+    (non-harmonised).
+-   *totwq5_bu_s*: Splits *nettotw_bu_s* into quintiles
+    (non-harmonised).
+
+Total net non-pension household wealth is represented in ELSA with
+*nettotw_bu_s*, that is a summary measure of the value of financial,
+physical and housing wealth owned by the household (ie, a single
+respondent or a responding couple along with any dependent individuals)
+minus any debt. The estimation of this variable is based on 22 different
+wealth and debt components, which were either observed or imputed
+[@torres2016wealth; @demakakos2016wealth]. The imputed wealth and debt
+components were integral part of the original ELSA data set and
+generated by the data depositors and not the authors of this study. Most
+of these imputations referred to incomplete values in one or two
+components and were based on information that the participants provided
+about the upper and lower boundaries within which the actual values of
+those components lay. A detailed description of wealth and its
+components can be found at: <http://bit.ly/1yrRgHd> and
+<http://bit.ly/1awp6iZ>.
+
+We add these variables into the harmonised datates as
+
+-   *"rXnettotw"* : net total wealth
+-   *"rXnettotw_q"*: net total wealth as quintile
+
+#### Physical health
+
+**MLTC**\
+Defined as the count of doctor-diagnosed illnesses among (categories
+usind in [@poole2020combined]): - CHD (angina \| myocardial
+infarction) - stroke - diabetes/high blood glucose - pulmonary disease
+(chronic bronchitis, emphysema) - arthritis (osteoarthritis \|
+rheumatoid \| arthritis type not specified) - cancer
+
+additional categories used in [@torres2016wealth] - Parkinson -
+cardiovascular diseases (high blood pressure, angina, heart attack,
+heart failure, heart murmur or heart rhythm)
+
+additional categories used in [@simpson2023eliciting]: - hypertension, -
+asthma, - arrhythmia, - mental health disorders (depression, anxiety,
+emotional problems, hallucinations, schizophrenia, psychosis), -
+Alzheimer's disease, - dementia
+
+The extended number of conditions in [@simpson2023eliciting] were
+selected based on previous research and Delphi consensuses defining
+MLTC.
+
+#### Mental health
+
+"Depression (CES-D)"
+
+RwCESD is the sum of RwDEPRES, RwEFFORT, RwSLEEPR, RwFLONE, RwFSAD,
+RwGOING, (1-RwWHAPPY) and (1-RwENLIFE). Thus the higher the score, the
+more negative the respondent's feelings were during the past week.
+
+#### Loneliness
+
+"UCLA 4 items"
+
+RwLNLYS indicates the mean of the four different loneliness questions 
+(RwCOMPLAC, RwLEFTOUT, RwISOLATE and RwINTUNE) and can be used as a summary 
+score. RwLNLYS is coded to make sure that higher scores indicate that the 
+respondent feels more lonely.
+
+
+## Analysis
+
+We apply a Latent Transition Analysis (LTA) approach using the LMest
+package[@bartolucci2017lmest]. This method allows to apply Latent Markov
+model with time-varying categorical indicators to empirically determine
+latent Markov states, and thep probability of subjects to move between
+these unobserved states over time. Here we capture both the initial
+states probability distribution and the probability of the temporal
+transitions between latent states. Both components are then parametrised
+with multinomial logistic regression via which we determine the effects
+of our covariates of interest. The initial probabilities employ a
+reference-state approach (taking state 1 as reference) to estimate the
+likelihood of a respondent starting in each latent state at the first
+timepoint. Transition probabilities are also modeled with a reference
+category but instead of being fixed to "state 1", the probability of
+transition from one state to another are estimated in reference to
+stability (i.e. "staying in the same state). This is the default
+analytical pipeline of LMEST() and allows to estimate how covariates
+(either continuous or categorical) affect the likelihood of a respondent
+changing state. This analysis is carried out with the assumption of
+time-invariant transition probabilities (modbasic = 1), which assumes
+constant transition probabilities across measurement occasions. A
+comparison method is presented relaxing the assumption of
+time-invariance and models are then compared using goodness of fit
+indexes. Within each model, parameters are estimated using a
+Expectation-Maximization (EM) algorithm, which iteratively maximizes the
+likelihood despite the unobservable nature of the latent states.
+**DIEGO: remember to add something about local minima, random starting
+points, and boostrapped SE**
+
+Modeling Framework: Time-homogeneous latent Markov model (k states).
+
+Exposures and confounders enter the latent model (initial state probabilities and transition probabilities). The emission (measurement) model does not include these covariates by default. However *there will be direct effects on emissions*: Covariates will affect the emission model only if explicitly pre-specified a priori for particular outcomes (e.g., to account for known reporting/measurement differences). Any such emission covariates will be listed in advance and limited to those outcomes with strong theoretical justification.
+
+Primary estimand: Total effects of partnership and marital strain on baseline state and transition probabilities, adjusting for a prespecified confounder set (demographics, socioeconomic status, and baseline health burden), implemented parsimoniously via component scores where appropriate.
+
+
+
+
+### Predicting initial probabilities
+
+Multinomial logistic regression is used to estimate the initial
+probabilities. The latent class 1 (“state” 1) is treated as the
+reference category. The coefficients are log-odds ratios comparing each
+non-reference category to the reference category. Therefore they
+represent the log-odds of being in state 2 rather than state 1, and
+those of being in state 3 rather than state 1 respectively. As a
+reminder, the logit function is the natural logarithm of the odds that a
+particular event will occur. This functions helps to map probability
+values (which are between 0 and 1) to real numbers that can range from
+negative infinity to positive infinity:
+
+**EQ.1** $$logit(p) = ln \left(\frac{p}{1-p}\right)$$
+
+Where p is the probability of the event occurring, and ln is the natural
+logarithm and p/(1-p) is the odds ratio of p.
+
+As for the LMest package paper ([Bartolucci, Pandolfi & Pennoni
+2017](https://www.jstatsoft.org/article/view/v081i04)). The initial
+probabilities are defined with this equation:
+
+**EQ.2**
+$$\log \frac{P(U^{(1)} = u|X^{(1)} = x)}{P(U^{(1)} = 1|X^{(1)} = x)} = \log \frac{\pi_{u|x}}{\pi_{1|x}} = \beta_{0u} + x^T\beta_{1u}, \quad u = 2,\ldots,k$$
+
+where, $U^{(i)}$ represents the initial latent state; $x$ is the vector
+of covariates; $\pi_{u|x}$ is the probability of being in state u given
+covariates $x$; $\pi_{1|x}$ is the probability of being in state 1
+(reference state) given covariates $x$; $\beta_{0u}$ is the intercept
+for state $u$; $\beta_{1u}$ is the vector of coefficients for the
+covariates for state $u$; and $u$ ranges from 2 to $k$ number of states.
+
+In multinomial logistic regression, one category of the dependent
+variable is typically chosen as the reference category – in our case it
+is a reference *latent state*. The model then estimates the odds ratios
+for all independent variables for each category of the dependent
+variable with the exception of the reference category, which omitted
+from the analysis. Setting these coeficients to zero in the reference
+category avoids redundancy and ensure model identifiability (e.g.
+[Markov models with multinomial logistic
+regression](https://cran.r-project.org/web/packages/hesim/vignettes/mlogit.html)
+and [Multinomial logistic
+regression](https://bookdown.org/chua/ber642_advanced_regression/multinomial-logistic-regression.html)).
+
+In accordance with this approach, we see the four colums (2:5) that
+compare the log-odds of being in state (e.g) “2” versus being in the
+reference state (state 1). **The column for state 1 is omitted because
+it is the reference category or state**. The following table from the
+output of LMest presents the exponential beta coefficients representing
+the change in the odds for someone being in a partiticular state versus
+being in the reference state “1”.
+
+### Predicting transition probabilities
+
+*Initial assumption* This model was set as modbasic = 1 (that is: the
+effect on transition was assumend to be invariant between timepoints).
+Therefore, we estimate transition probability assuming to be constant
+from one time to another. I.e., the case in which the probability of
+transitioning from state 1 to state 2 will be the same whether the
+transition happens at time 1, time 2, time 3 $$..$$.
+
+The Transition probabilities are determined as follow:
+
+**EQ.3**
+$$\log \frac{P(U^{(t)} = u|U^{(t-1)} = \bar{u}, \mathbf{X}^{(t)} = x)}{P(U^{(t)} = \bar{u}|U^{(t-1)} = \bar{u}, \mathbf{X}^{(t)} = x)} = \log \frac{\pi_{u|\bar{u}x}^{(t)}}{\pi_{\bar{u}|\bar{u}x}^{(t)}} = \gamma_{0\bar{u}u} + x^T\gamma_{\bar{u}u}$$
+
+for $t = 2, \ldots , T$ and $\bar{u},u = 1, \ldots, k$, **with**
+$\bar{u}\not=u$. ([Bartolucci, Pandolfi & Pennoni
+2017](https://www.jstatsoft.org/article/view/v081i04),pg.20).
+
+Here we notice that:
+
+1.  $\pi_{u|\bar{u}x}^{(t)}$ is the probability of transitioning to
+    state $u$ at time $t$, given that the previous state was $\bar{u}$
+    and the covariate value is $x$.
+2.  $\pi_{\bar{u}|\bar{u}x}^{(t)}$ is the probability of staying in the
+    same state $\bar{u}$ at time $t$ given the covariate value is $x$.
+
+In this parametrisation, each transition has its own covariate effect
+$\gamma_{\bar{u}u}$. The transition probabilities are also presented
+here using a reference category approach. However, this time the
+reference category is the transition to the same state or “staying in
+the same state” – note that in EQ3 we have
+$\pi_{\bar{u}|\bar{u}x}^{(t)}$ and not $\pi_{1|\bar{u}x}^{(t)}$).
+
+### Confounder identification
+
+We begin with theory-driven selection of: 1. known variables associated
+with the development and maintenance of CP and high health impact
+connected with chronic pain. 2. known variables that are know to be
+associated with social support, chronic pain, and high impact chronic
+pain.
+
+### Confounder selection
+
+The most rigorous approach to confounder selection is based on causal
+inference theory using Directed Acyclic Graphs (DAGs), as formalized by
+Pearl (2009) and further developed by VanderWeele and Shpitser (2011).
+
+VanderWeele and Shpitser (2011) proposed the "disjunctive cause
+criterion" for confounder selection, which states that variables should
+be adjusted for if they are:
+
+-   Causes of the exposure (Marital Strain & partnership status)
+-   Causes of the outcome
+-   Causes of both exposure and outcome
+
+We start by examining bivariate associations between potential
+confounders and
+
+1.  our main exposure (Marital Strain)
+2.  our outcome variables chronic pain and health impact
+
+# RESULTS
+
+We present the baseline levels of all measures and where relevant we
+compare them with Wave 1 data because the latter was directly sampled
+from 2001 HSE (Health survey for Englad) and represent here a benchmarck
+sample in terms of how it represent England population in 2002.
+
+## Table1
+
+### Demographic Factors
+
+#### Age and Gender
+
+Men are less likely to report or experience chronic pain than women
+[@greenspan2007studying].
+
+(look at mills 2019 for approapriate summary here)
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+cut_age_brackets <- function(ages) {
+  cut(ages, 
+      breaks = c(50,60,70,80,Inf), 
+      labels = c("50-59", "60-69","70-79", "80+"),
+      right = TRUE)
+}
+
+## HSE age categories
+H_elsa_w1$r1agey_cat<-H_elsa_w1$r1agey %>% cut_age_brackets()
+
+## Wave 4 age categories (baseline)
+H_elsa_w4_6$r4agey_cat<-H_elsa_w4_6$r4agey %>% cut_age_brackets()
+
+# Prepare data
+plot_data <- data.frame(
+  age = c(H_elsa_w1$r1agey_cat, H_elsa_w4_6$r4agey_cat),
+  Sex = factor(
+    c(H_elsa_w1$ragender, H_elsa_w4_6$ragender),
+    levels = c(1, 2),
+    labels = c("Male", "Female")
+  ),
+  wave = c(
+    rep("Wave 1 (HSE sample)", length(H_elsa_w1$r1agey_cat)), 
+    rep("Wave 4", length(H_elsa_w4_6$r4agey_cat))
+  )) %>%
+  group_by(wave, age, Sex) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(wave) %>%
+  mutate(
+    percentage = (count / sum(count)),
+    signed_percentage = case_when(
+      wave == "Wave 1 (HSE sample)" & Sex == "Male" ~ -percentage,
+      wave == "Wave 1 (HSE sample)" & Sex == "Female" ~ -percentage,
+      wave == "Wave 4" & Sex == "Male" ~ percentage,
+      wave == "Wave 4" & Sex == "Female" ~ percentage
+  ))
+
+wave_totals <- plot_data %>%
+  group_by(wave) %>%
+  summarise(total_respondents = sum(count)) %>%
+  mutate(label = paste0(wave, " (n = ", total_respondents, ")"))
+
+# Population pyramid plot
+ggplot(plot_data) +
+  geom_col(aes(fill = interaction(Sex, wave, sep = ":"), 
+               y = signed_percentage,
+               x = age), colour = "white", 
+           position = "dodge") + 
+  # Add percentage labels at the end of bars
+  geom_text(
+    aes(
+      x = age,
+      y = signed_percentage,
+      label = scales::percent(abs(percentage), accuracy = 0.1),
+      group = interaction(Sex, wave),
+      hjust = ifelse(signed_percentage < 0, 1, -0)  # Outside bars
+    ),
+    position = position_dodge(width = 0.9),  # Match the dodge width
+    size = 4
+  ) +
+  coord_flip() +
+  facet_wrap(.~ wave, 
+             scales = "free_x",
+             strip.position = "bottom") +
+  theme_minimal() +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    name = "Percentage of Respondents",
+    expand = expansion(mult = c(0, 0))  # Add more space for labels
+  )+
+  scale_x_discrete(
+    name = "Age Bracket"
+  )+
+  theme(
+    legend.position = "bottom",
+    panel.spacing.x = unit(0, "pt")
+  )+
+  labs(
+    title = "Population Pyramid: Age braket Distribution by Sex: Wave 1 (HSE) vs Wave 4",
+    fill = "Sex:Wave",
+    caption = paste0("Wave 1 (HSE) n =",nrow(H_elsa_w1),
+                     "; Wave 4 n = ",nrow(H_elsa_w4_6))
+  )
+
+
+```
+
+#### Net total Wealth
+
+var: r1nettotw_bu_s, r1totwq5_bu_s
+
+the prevalence of chronic pain is inversely related to socio-economic
+factors [@mills2019chronic] (many good refs of this in mills).
+
+Those who are socio-economically deprived are not only more likely to
+experience chronic pain than people from more affluent areas, but they
+are also more likely to experience more severe pain and a greater level
+of pain-related disability [@mills2019chronic]
+
+r1nettotw_bu_s is "Net total wealth" (benefit unit level): expressed as
+the sum of savings, investments, physical wealth and housing wealth
+after financial debt and mortgage debt has been subtracted. The
+distrubution of wealth is severely skewed and a log transformation of
+the wealth magnitude axis allows for better visual examination of the
+distribution (next two figures).
+
+In general there is a clear wealth gradient in disability among older English adults with the 
+poorest men with disability more likely to live without a partner and have no weekly contact with children, 
+family or friends compared to the wealthiest. Among women with disability, the poorest are 
+more likely to report loneliness and have no partner while the wealthiest and the intermediate 
+groups were more likely to be living with a partner. https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0166825
+
+It is plausible that individuals living with a partner in the same household combine financial 
+and other resources, resulting in greater overall household wealth compared to those 
+living alone. However, disentangling this causal relationship is challenging due to 
+potential bidirectional influences and confounding factors—for example, wealth may 
+impact marital stability, while partnership status influences wealth accumulation. 
+To address these complexities, we will examine this potential mediation pathway
+using the decoded latent states in a sensitivity analysis, estimating the indirect 
+effect of partnership on health outcomes through wealth, while accounting for possible
+confounding. This approach allows us to better understand how socio-economic resources 
+linked to partnership status contribute to variations in chronic pain-related latent 
+health states.
+
+```{r echo=FALSE, warning=F,message=FALSE,error=FALSE}
+Sys.setlocale("LC_ALL", "en_GB.UTF-8")   # adjust to your region
+
+Wealth_data<- H_elsa_w1 %>% 
+                select(r1nettotw_bu_s, r1totwq5_bu_s)                                                                                         
+Wealth_median<-median(Wealth_data$r1nettotw_bu_s, na.rm = T)
+
+plot_Wealth_w1<-ggplot(Wealth_data, aes(x = r1nettotw_bu_s)) +
+  geom_histogram(fill = "blue", color = "black", alpha = .4) +
+  scale_x_continuous(trans=scales::pseudo_log_trans(base = 10),
+                     labels = scales::comma,
+                     guide = guide_axis(angle =  90),
+                     breaks = c(-10^4,-10^3,-10^2,-10,0,10,10^2,10^3,10^4,10^5,10^6,10^7)) +
+  geom_vline(xintercept = Wealth_median, linetype="dotted", color = "red")+
+  labs(title = "Distribution of net total wealth (£, log scale) Wave 1",
+       subtitle = "The sum of savings, investments, physical wealth and housing wealth, minus \nfinancial debt and mortgage debt.",
+       x = "Total Net Wealth ( log scale)",
+       y = "Count",
+       caption = paste0("Dotted line is the median net total wealth m= £",Wealth_median, 
+                        ", n = ",nrow(Wealth_data))) +
+  theme_minimal()
+
+plot_Wealth_w1
+```
+
+the representation by quintile allows for a more general perspective on
+this same information
+
+HSE and WAVE 4 comparison
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+
+w4quintile_breaks <- quantile(H_elsa_w4_6$r4nettotw_bu_s, 
+                           probs = seq(0, 1, by = 0.2),na.rm = T)
+
+
+# Use these breakpoints to assign quintiles to all values
+H_elsa_w4_6$r4totwq5_bu_sIMP <- cut(H_elsa_w4_6$r4nettotw_bu_s, 
+                                     breaks = w4quintile_breaks, 
+                                     labels = FALSE,
+                                     include.lowest = TRUE)
+
+
+# Where quintiles exist, keep the original values
+H_elsa_w4_6$r4totwq5_bu_s <- ifelse(
+  is.na(H_elsa_w4_6$r4totwq5_bu_s),
+  H_elsa_w4_6$r4totwq5_bu_sIMP,
+  H_elsa_w4_6$r4totwq5_bu_s
+)
+
+
+plot_dataw1 <- H_elsa_w1 %>% 
+  select(r1nettotw_bu_s, r1totwq5_bu_s) %>%                                                         
+  mutate(
+    r1nettotw_bu_s = as.integer(r1nettotw_bu_s),
+    r1totwq5_bu_s = as.integer(r1totwq5_bu_s)
+  ) %>% 
+  na.omit() %>%
+  mutate(wave = "Wave 1")
+
+plot_dataw4 <- H_elsa_w4_6 %>% 
+  select(r4nettotw_bu_s, r4totwq5_bu_s) %>%                                                         
+  mutate(
+    r4nettotw_bu_s = as.integer(r4nettotw_bu_s),
+    r4totwq5_bu_s = as.integer(r4totwq5_bu_s)
+  ) %>% 
+  na.omit() %>%
+  mutate(wave = "Wave 4")
+
+# Combine data
+plot_data <- bind_rows(
+  plot_dataw1 %>% 
+    rename(
+      nettotw_bu_s = r1nettotw_bu_s,
+      totwq5_bu_s = r1totwq5_bu_s
+    ),
+  plot_dataw4 %>% 
+    rename(
+      nettotw_bu_s = r4nettotw_bu_s,
+      totwq5_bu_s = r4totwq5_bu_s
+    )
+)
+
+ggplot(plot_data, aes(x = as.factor(totwq5_bu_s), y = nettotw_bu_s , fill = wave)) +
+  geom_boxplot() +
+  scale_y_continuous(trans=scales::pseudo_log_trans(base = 10),
+                     labels = scales::comma,
+                     breaks = c(-10^4,-10^3,-10^2,-10,0,10,10^2,10^3,10^4,10^5,10^6,10^7)) +
+  labs(title = "Wave1 (HSE) vs wave4: Distribution of Wealth by Quintile",
+       x = "Quintile (poorer->wealthier)",
+       y = "Wealth £ (log scale) ",
+       caption = paste0("Wave 1 (HSE) n =",nrow(plot_dataw1),
+                        "; Wave 4 n = ",nrow(plot_dataw4)))+
+  theme_minimal()
+
+
+```
+
+#### Education
+
+var: raeduc_e. This variable is defined using the RAND HRS categorical
+summary of education: 1.Less than high school, 3.high school graduate,
+4.some college, and 5.college and above.
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+# Prepare data for both waves
+education_dataw1 <- H_elsa_w1 %>%
+    group_by(raeduc_e) %>%
+    summarise(count = n()) %>%
+    mutate(
+      category = case_when(
+        raeduc_e == 1 ~ "Less than upper secondary",
+        raeduc_e == 2 ~ "other education", # this was originally category "-15"
+        raeduc_e == 3 ~ "Tertiary",
+        raeduc_e == 4 ~ "Some college",
+        raeduc_e == 5 ~ "College and above",
+        is.na(raeduc_e) ~ "Missing"
+      ),
+      percentage = count / sum(count) * 100,
+      wave = "Wave 1"
+  )
+
+education_dataw4 <- H_elsa_w4_6 %>%
+    group_by(raeduc_e) %>%
+    summarise(count = n()) %>%
+    mutate(
+      category = case_when(
+        raeduc_e == 1 ~ "Less than upper secondary",
+        raeduc_e == 2 ~ "other education", # this was originally category "-15"
+        raeduc_e == 3 ~ "Tertiary",
+        raeduc_e == 4 ~ "Some college",
+        raeduc_e == 5 ~ "College and above",
+        is.na(raeduc_e) ~ "Missing"
+      ),
+      percentage = count / sum(count) * 100,
+      wave = "Wave 4"
+  )
+
+# Combine data
+education_data <- bind_rows(education_dataw1, education_dataw4) %>%
+  group_by(wave) %>%
+  mutate(
+    percentage = count / sum(count) * 100,
+    category = factor(
+      category, 
+      levels = c(
+        "Less than upper secondary", 
+        "other education", # this was originally category "-15"
+        "Tertiary", 
+        "Some college", 
+        "College and above",
+        "Missing"
+      )
+    )
+  )
+
+edu_plot<-ggplot(education_data, aes(x = category, y = percentage, fill = wave)) +
+  geom_bar(
+    stat = "identity", 
+    position = position_dodge(width = .9),
+    alpha = 0.7
+  ) +
+  scale_fill_brewer(palette = "Paired")+
+  geom_text(
+    aes(
+      label = paste0(round(percentage,1),"%"),
+      group = wave
+    ),
+    position = position_dodge(width = 1),
+    vjust = -0.3,
+    size = 3
+  ) +
+  labs(
+    title = "Education Level Distribution: Wave 1 (HSE) vs Wave 4",
+    x = "Education Category",
+    y = "Percentage of Respondents",
+    caption = paste0("Wave 1 (HSE) n =",nrow(H_elsa_w1),
+                     "; Wave 4 n = ",nrow(H_elsa_w4_6))
+  ) +
+  theme_minimal() +
+  scale_y_continuous(labels = function(x) paste0(x, "%"))+
+  scale_x_discrete(guide = guide_axis(angle =  90))
+
+edu_plot
+```
+
+#### Occupational status
+
+var: rXwork People who are not in employment because of ill health or
+disability are more likely to have chronic pain than those who are
+employed [@mills2019chronic]
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+work_plot<-binary_var_chart(
+  data_w1 = H_elsa_w1, 
+  data_w4 = H_elsa_w4_6, 
+  var_w1 = "r1work", 
+  var_w4 = "r4work",
+  positive_code = 0,
+  negative_code = 1,
+  var_name = "Work Status", 
+  positive_label = "Not Working", 
+  negative_label = "Working for Pay"
+)
+
+work_plot
+
+```
+
+### Lifestyle and Behaviour factors
+
+#### Smoking
+
+rXsmoken : whether ever having smoked
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+smoking_plot <- binary_var_chart(
+  data_w1 = H_elsa_w1, 
+  data_w4 = H_elsa_w4_6, 
+  var_w1 = "r1smoken", 
+  var_w4 = "r4smoken",
+  positive_code = 1,
+  negative_code = 0,
+  var_name = "Ever having smoked.", 
+  positive_label = "Having smoked", 
+  negative_label = "Never Smoked"
+)
+
+smoking_plot
+
+```
+
+People with chronic pain are more likely to smoke than those with no
+pain
+
+#### Alcohol
+
+self-completion questionnaire (missing values 1090 or 12%)
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+binwidth=.3
+NA_count<-H_elsa_w4_6$r4drinkwn_e %>%  is.na() %>% sum
+NA_perc<- round(NA_count/nrow(H_elsa_w4_6) *100,1)
+drinking_plot <-ggplot(H_elsa_w4_6, aes(x = r4drinkwn_e , 
+                        fill = factor(ragender, 
+                                      labels = c("male","female")))) +
+    geom_histogram(binwidth = binwidth,
+                   position = position_dodge2(preserve = "single", width = 0.25),
+                  alpha = 0.8) +
+    scale_x_continuous(trans=scales::pseudo_log_trans(base = 10), 
+                       breaks = c(0,1,2,4,8,16,32,64,128))+
+    theme_minimal() +
+    labs(
+      title = "Distribution of number of drinks/week by gender at baseline (w4)",
+      subtitle = "x axis represent the count of beer, wine, spirit drunk each week",
+      x = "N. of beer, wine, spirit drunk each week (log scale)",
+      y = "Frequency",
+      fill = "Gender",
+      caption = paste0("Wave 4 n = ", nrow(H_elsa_w4_6),
+                        "; missing values n = ", NA_count, 
+                       " (",NA_perc,"%)"))+
+    theme_minimal() 
+
+drinking_plot
+
+```
+
+### Main Predictor
+
+##### Having a partner or spouse
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+Partnership_plot <- binary_var_chart(
+  data_w1 = H_elsa_w1, 
+  data_w4 = H_elsa_w4_6, 
+  var_w1 = "r1partner", 
+  var_w4 = "r4partner",
+  positive_code = 1,
+  negative_code = 0,
+  var_name = "Having a partner.", 
+  positive_label = "Have a partner/spouse", 
+  negative_label = "Does not have a partner/spouse"
+)
+
+Partnership_plot
+
+```
+
+##### Partner Support status
+
+.. of those who have a partner or spouse
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+ssup_plotDF<-H_elsa_w4_6%>%
+           filter(r4partner == 1)
+
+
+NA_count_SS<-sum(is.na(ssup_plotDF$r4ssupport6))
+NA_perc_SS<-NA_count_SS/nrow(ssup_plotDF) *100 
+MedianSupport_SS <- median(ssup_plotDF$r4ssupport6, na.rm = TRUE)
+
+plot_ssupport<-ggplot(ssup_plotDF, aes(x =r4ssupport6, 
+                        fill = factor(ragender, 
+                                      labels = c("Male", "Female")))) +
+  geom_histogram(binwidth = 0.2,
+                 position = position_dodge2(preserve = "single", width = 0.25),
+                 alpha = 0.8) +
+  scale_x_continuous(breaks = seq(1, 4, 0.5)) +
+  geom_vline(xintercept = MedianSupport_SS, linetype = "dotted", color = "blue") +
+  theme_minimal() +
+  labs(
+    title = "Marital/partnership strain scores by Gender at Wave 4 (range 1:4)",
+    subtitle = paste0("Dotted line indicates median score = ", round(MedianSupport_SS, 2),
+                      " (higher = greater strain, 4 is max score)"),
+    x = "Marital Strain Score",
+    y = "Frequency",
+    fill = "Gender",
+    caption = paste0("Wave 4 with partners n = ", nrow(ssup_plotDF),
+                     "; missing Marital Strain data n = ", NA_count_SS, 
+                     " (", round(NA_perc_SS,1), "%)")
+  )
+
+plot_ssupport
+```
+
+### Clinical Factors
+
+#### Sleep
+
+**sleep** Whether sleep was restless *rXsleepr*
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+sleep_plot <- binary_var_chart(
+  data_w1 = H_elsa_w1, 
+  data_w4 = H_elsa_w4_6, 
+  var_w1 = "r1sleepr", 
+  var_w4 = "r4sleepr",
+  positive_code = 1,
+  negative_code = 0,
+  var_name = "Sleep is restless.", 
+  positive_label = "Restless sleep", 
+  negative_label = "No restless sleep"
+)
+
+sleep_plot
+
+```
+
+#### BMI
+
+*moderate Obesity* defined as BMI \>=30 [@andreyeva2007obesity]
+
+missingness happens whenever the nurse visit did not take place.
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+binwidth=3
+NA_count<-H_elsa_w4_6$r4mbmi %>%  is.na() %>% sum
+NA_perc<- round(NA_count/nrow(H_elsa_w4_6) *100,1)
+MedianBMI<- median(H_elsa_w4_6$r4mbmi, na.rm = T)
+BMI_plot <-ggplot(H_elsa_w4_6, aes(x = r4mbmi , 
+                        fill = factor(ragender, 
+                                      labels = c("male","female")))) +
+    geom_histogram(binwidth = binwidth,
+                   position = position_dodge2(preserve = "single", width = 0.25),
+                  alpha = 0.8) +
+    scale_x_continuous(breaks = seq(0,60,5))+
+    geom_vline(xintercept = MedianBMI, linetype="dotted", color = "blue")+
+    theme_minimal() +
+    labs(
+      title = "Distribution of Body Mass Index (BMI) by gender at baseline (w4)",
+      subtitle = paste0("Dotted line indicate median BMI = ", round(MedianBMI,2)),
+      x = "BMI",
+      y = "Frequency",
+      fill = "Gender",
+      caption = paste0("Wave 4 n = ", nrow(H_elsa_w4_6),
+                        "; missing values n = ", NA_count, 
+                       " (",NA_perc,"%)"))+
+    theme_minimal() 
+
+BMI_plot
+```
+
+#### Physical Activity
+
+Participants were asked to self-report the frequency of their
+participation in sports or activities that were vigorous, moderately
+energetic and mildly energetic (more than once a week, once a week, one
+to three times a month, hardly ever or never). Physical activity was
+then categorised into four groups in accordance with previous literature
+[@dhalwani2016long,malkowski2023socioeconomic]: (1) inactive (no
+activity on a weekly basis); (2) only mild activity at least once per
+week; (3) at least moderate but no vigorous activity at least once per
+week; and (4) vigorous activity at least once per week.
+
+```{r}
+
+
+# Create a data frame with percentages by category and gender
+PA_data <- H_elsa_w4_6 %>%
+  filter(!is.na(r4PA_cat)) %>%
+  group_by(ragender, r4PA_cat) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(ragender) %>%
+  mutate(percentage = count / sum(count) * 100) %>%
+  ungroup() %>%
+  mutate(category = factor(r4PA_cat,
+                          levels = 1:4,
+                          labels = c("Inactive", 
+                                     "Only mild activity",
+                                     "At least moderate but not vigorous activity",
+                                     "At least one vigorous activity every week")))
+
+# Calculate missing data count
+missing_PA_count <- sum(is.na(H_elsa_w4_6$r4PA_cat))
+
+# Create the plot
+plot_PA_data<-ggplot(PA_data, aes(x = category, y = percentage, fill = factor(ragender, labels = c("male", "female")))) +
+  geom_bar(
+    stat = "identity", 
+    position = position_dodge(width = 0.9),
+    alpha = 0.7
+  ) +
+  geom_text(
+    aes(
+      label = sprintf("%.1f%%", percentage),
+      group = factor(ragender, labels = c("male", "female"))
+    ),
+    position = position_dodge(width = 0.9),
+    vjust = -0.3,
+    size = 3
+  ) +
+  labs(
+    title = "Physical Activity Categories by Gender at Baseline (Wave 4)",
+    x = "Physical Activity Category",
+    y = "Percentage of Respondents",
+    fill = "Gender",
+    caption = paste0("Participants with missing PA data n= ", missing_PA_count, " of N = ", nrow(H_elsa_w4_6))
+  ) +
+  theme_minimal() +
+  scale_y_continuous(labels = function(x) paste0(x, "%")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+plot_PA_data
+```
+
+#### Depression 7 item
+
+Depression is strongly linked with chronic pain [@mills2019chronic]
+
+The CES-D-8 is a valid and reliable measure of depressive symptoms in
+community-dwelling older people, [@briggs2018validation] and a score of
+\>=3 is generally accepted as threshold for
+caseness[@turvey1999revised,white2016duration].
+
+Counting restless sleep in a cumulative sum score approach may thus
+inflate total scores. [@schlechter2023eight]. This is particularly
+problematic when sleep disturbance is also being examined as a separate
+variable in our analysis.
+
+Since we are analyzing sleep problems as a distinct outcome variable, we
+will use the sum score based on 7 items.
+
+```{r}
+
+binwidth=1
+NA_count<-H_elsa_w4_6$r4cesd %>%  is.na() %>% sum
+NA_perc<- round(NA_count/nrow(H_elsa_w4_6) *100,1)
+MedianCESD<- median(H_elsa_w4_6$r4cesd, na.rm = T)
+Threshold_CESD<-3
+CESD_plot <-ggplot(H_elsa_w4_6, aes(x = r4cesd , 
+                        fill = factor(ragender, 
+                                      labels = c("male","female")))) +
+    geom_histogram(binwidth = binwidth,
+                   position = position_dodge2(preserve = "single", width = 0.25),
+                  alpha = 0.8) +
+    scale_x_continuous(breaks = seq(0,7,1))+
+    geom_vline(xintercept = Threshold_CESD, linetype="dashed", color = "red")+
+    theme_minimal() +
+    labs(
+      title = "Distribution of CES-D 7 scores by gender at baseline (w4)",
+      subtitle = paste0("Blue and red lines indicate median CES-D 7 = ", round(MedianCESD,2)," and 3 as the clinical threshold \nfor depressive symptomatology (on the 8 item version)"),
+      x = "CESD",
+      y = "Frequency",
+      fill = "Gender",
+      caption = paste0("We removed the sleep item to compile a seven item scale. Wave 4 n = ", nrow(H_elsa_w4_6),
+                        "; missing values n = ", NA_count, 
+                       " (",NA_perc,"%)"))+
+    theme_minimal() 
+
+CESD_plot
+```
+
+#### MLTC
+
+MLTC: count of doctor-diagnosed illnesses [@poole2020combined]): \*
+rXangine \| rXhrtatte: CHD (angina \| myocardial infarction) \*
+rXstroke: stroke \* rXdiabe: diabetes/high blood glucose \* rXlunge:
+pulmonary disease (chronic bronchitis, emphysema) \* rXarthre: -
+arthritis (osteoarthritis \| rheumatoid \| arthritis type not specified)
+\* rXcancre: cancer
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+################################ Not adopted
+# additional categories used in [@torres2016wealth]
+  # rXparkine: Parkinson
+  # cardiovascular diseases (
+  #  rxhibpe   : high blood pressure, 
+  #  rXangine  : angina, 
+  #  rXhrtatte : heart attack, 
+  #  rXconhrtfe: heart failure, 
+  #  rXhrtmre  : heart murmur 
+  #  rXhrtrhme : heart rhythm)
+
+# additional categories used in [@simpson2023eliciting]:
+  # rxhibpe    : hypertension | high blood pressure
+  # rXasthmae  : asthma, 
+  # rXpsyche   : mental health disorders (diagnosed: depression, anxiety, emotional problems, hallucinations, schizophrenia, psychosis) 
+  # rxalzhe    : Alzheimer's disease, 
+  # rXdemene   : dementia 
+################################## Not adopted
+
+MLTC_plot <-ggplot(H_elsa_w4_6, aes(x = r4MLTC , 
+                        fill = factor(ragender, 
+                                      labels = c("male","female")))) +
+    geom_histogram(binwidth = binwidth,
+                   position = position_dodge2(preserve = "single", width = 0.25),
+                  alpha = 0.8) +
+    scale_x_continuous(breaks = seq(0,5,1))+
+   theme_minimal() +
+    labs(
+      title = "Distribution of MLTC count by gender at baseline (w4)",
+      subtitle = paste0(""),
+      x = "N of MLTC",
+      y = "Frequency",
+      fill = "Gender",
+      caption = paste0("Wave 4 n = ", nrow(H_elsa_w4_6), ". missing = ", sum(is.na(H_elsa_w4_6$r4MLTC)))
+      )+
+    theme_minimal() 
+
+MLTC_plot
+```
+
+##### MLTC in wave 4 and wave 1 (HSE)
+
+Given the multiple retression formula:
+
+$$ y = \beta_0 + \beta_1MLTC + \beta_2SpSupp+ [...]+ \beta_nX_n + \epsilon $$
+where "MLTC" is the count of long term conditions, and "SpSupp" is the
+experience of partner support. Considering that SpSupp is the main
+predictor in this analysis and that SpSupp may affect the count of MLTC
+overtime, adjusting for MLTC could mask some of the effect of SpSupp
+that goes through MLTC (*Thanks Sam for pointing this out*):
+
+-   $\beta_2$ only captures the direct effect of SpSupp
+-   The indirect effect of SpSupp through MLTC gets attributed to
+    $\beta_1$
+-   The total effect of SpSupp is therefore underestimated in this case
+
+Here we can take MLTC out of the equation:
+
+$$ y = \gamma_0 + \gamma_1SpSupp+ ...+ \gamma_nX_n + \epsilon $$
+
+Here $\gamma_1$ will capture the total effect of partner support. This
+approach measures the association $gamma_1$ as a total effect of spouse
+support after adjusting for relevant confounders. It is satisfactory in
+this model considerting that we are not interested in decomposing the
+pathways of SpSupp.
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+wave1 <- H_elsa_w1 %>% 
+  select(r1MLTC) %>% 
+  mutate(MLTC = r1MLTC, wave = "Wave 1 (HSE)") %>%
+  group_by(MLTC) %>%
+  summarise(count = n(), wave = "Wave 1 (HSE)")
+
+wave4 <- H_elsa_w4_6 %>% 
+  select(r4MLTC) %>% 
+  mutate(MLTC = r4MLTC, wave = "Wave 4") %>%
+  group_by(MLTC) %>%
+  summarise(count = n(), wave = "Wave 4")
+
+plot_data <- bind_rows(wave1, wave4) %>%
+  group_by(wave) %>%
+  mutate(percentage = count / sum(count) * 100)
+    
+
+ggplot(plot_data, aes(x = MLTC, y = percentage, fill = wave)) +  # Changed y to percentage
+  geom_bar(
+    stat = "identity", 
+    position = position_dodge(width = 0.9),
+    alpha = 0.7
+  ) +
+  scale_fill_brewer(palette = "Paired")+
+  geom_text(
+    aes(
+      label = sprintf("%.1f%%", percentage),  # Changed label format
+      group = wave
+    ),
+    position = position_dodge(width = 0.9),
+    vjust = -0.3,
+    size = 3
+  ) +
+  labs(
+    title = "Multi-Morbidity Conditions [@poole2020combined]: Wave 1 (HSE) vs Wave 4",
+    x = "Number of Conditions",
+    y = "Percentage of Respondents",  # Changed y-axis label
+    fill = "Wave",
+    caption = paste0("Wave 1 n = ", nrow(H_elsa_w1), "; Wave 4 n = ", nrow(H_elsa_w4_6))
+  ) +
+  scale_y_continuous(labels = function(x) paste0(x, "%"))+  # Added percentage formatting  
+  scale_x_continuous(breaks = c(0,1,2,3,4,5)) +
+    theme_minimal()
+
+
+plotMLTCxAgexGender <- ggpairs(
+  H_elsa_w4_6,
+  title = "Age x Gender x count of Long Term Conditions (MLTC)",
+  mapping = aes(group = as.factor(ragender), 
+                fill = as.factor(ragender), 
+                color = as.factor(ragender),
+                alpha = .6),
+  columns = c("r4MLTC", "r4agey")
+)
+
+plotMLTCxAgexGender
+
+```
+
+#### N of pain locations
+
+-   hepawba *Whether feel pain in back*
+-   hepawhi *Whether feel pain in hips*
+-   hepawkn *Whether feel pain in knees*
+-   hepawfe *Whether feel pain in feet*
+-   hepawmo *Whether feel pain in mouth or teeth*
+-   hepawot *Whether feel pain elsewhere*
+-   hepawal *Whether feel pain all over*
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+PainlocN_data <- H_elsa_w4_6 %>%
+  group_by(pain_locN = r4pain_locN, gender = factor(ragender, labels = c("Male", "Female"))) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(gender) %>%
+  mutate(percentage = count / sum(count) * 100)
+
+
+ggplot(PainlocN_data, aes(x = pain_locN, y = percentage, fill = gender)) +  # Changed y to percentage
+  geom_bar(
+    stat = "identity", 
+    position = position_dodge(width = 0.9),
+    alpha = 0.7
+  ) +
+  geom_text(
+    aes(
+      label = sprintf("%.1f%%", percentage),  # Changed label format
+      group = gender
+    ),
+    position = position_dodge(width = 0.9),
+    vjust = -0.3,
+    size = 3
+  ) +
+  labs(
+    title = "Number of pain locations by gender",
+    x = "Number of Pain locations",
+    y = "Percentage of Respondents",  # Changed y-axis label
+    fill = "Wave",
+    caption = paste0("Wave 4 n = ", nrow(H_elsa_w4_6))
+  ) +
+  scale_y_continuous(labels = function(x) paste0(x, "%"))+  # Added percentage formatting  
+  scale_x_continuous(breaks = c(0,1,2,3,4,5,6,7)) +
+    theme_minimal()
+```
+
+#### Derived Variables:
+
+##### Net Tot Wealth bin
+
+A binary variable which shows whether respondent is in the most deprived
+quintile
+
+rXwealthBIN
+
+```{r}
+
+H_elsa_w4_6 <- H_elsa_w4_6 %>% 
+  mutate(
+    r4wealthBIN = case_when(
+      r4totwq5_bu_s == 1 ~ "most deprived Q",
+      r4totwq5_bu_s >  1 ~ "2:5 least deprived Q",
+      TRUE ~ NA_character_
+    ) %>% as.factor(),
+    r5wealthBIN = case_when(
+      r5totwq5_bu_s == 1 ~ "most deprived Q",
+      r5totwq5_bu_s >  1 ~ "2:5 least deprived Q",
+      TRUE ~ NA_character_
+    )%>% as.factor(),
+    r6wealthBIN = case_when(
+      r6totwq5_bu_s == 1 ~ "most deprived Q",
+      r6totwq5_bu_s >  1 ~ "2:5 least deprived Q",
+      TRUE ~ NA_character_
+    )%>% as.factor()
+  )
+
+
+table(H_elsa_w4_6$r4wealthBIN)
+```
+
+##### BMI bin
+
+```{r}
+
+###### CREATE BINARY VARIABLE FOR BMI
+H_elsa_w4_6<-H_elsa_w4_6 %>% mutate(
+  r4mbmiBIN = case_when(
+    r4mbmi >= 30 ~ "moderate obesity",
+    r4mbmi < 30  ~ "sub threshold",
+    is.na(r4mbmi) ~ "No nurse data")
+)
+
+plot_data <- H_elsa_w4_6 %>%
+    group_by(r4mbmiBIN, ragender) %>%
+    summarise(count = n()) %>%
+    group_by(ragender) %>%
+    mutate(
+      percentage = count / sum(count) * 100,
+      category = factor(
+        r4mbmiBIN, 
+        levels = c("moderate obesity", "sub threshold", "No nurse data")
+      )
+    )
+
+
+missing_nurse_count <- sum(H_elsa_w4_6$r4mbmiBIN == "No nurse data", na.rm = TRUE)
+
+BMI_binplot <- ggplot(plot_data, aes(x = category, y = percentage, fill = factor(ragender, labels = c("male", "female")))) +
+  geom_bar(
+    stat = "identity", 
+    position = position_dodge(width = 0.9),
+    alpha = 0.7
+  ) +
+  geom_text(
+    aes(
+      label = sprintf("%.1f%%", percentage),
+      group = factor(ragender, labels = c("male", "female"))
+    ),
+    position = position_dodge(width = 0.9),
+    vjust = -0.3,
+    size = 3
+  ) +
+  labs(
+    title = "BMI Categories by Gender at baseline (WAVE 4)",
+    x = "BMI Category",
+    y = "Percentage of Respondents",
+    fill = "Gender",
+    caption = paste0("Participants missing nurse data n= ",missing_nurse_count," of N = ", nrow(H_elsa_w4_6))
+  ) +
+  theme_minimal() +
+  scale_y_continuous(labels = function(x) paste0(x, "%"))
+
+BMI_binplot
+
+```
+
+### Chronic widespread pain state
+
+we check these bivariate association for the categorical variable
+(r4pain_locN_cat as factor) indicating "widespread pain".
+
+```{r}
+painLoc_data <- H_elsa_w4_6 %>%
+  select(
+    r4pain_locN_cat,
+    r4painchr) %>%
+  # Remove NA values
+  filter(!is.na(r4painchr))
+
+fact_var<-c("r4painchr",
+            "r4pain_locN_cat"
+            )
+
+painLoc_data<-painLoc_data%>% mutate(across(all_of(fact_var), factor))
+
+str(painLoc_data)
+
+```
+
+In this case we have two categorical variables, polychoric correlations
+will be applied.
+
+```{r}
+
+# hetcor computes a heterogenous correlation matrix, consisting of: 
+# * Pearson product-moment correlations between numeric variables, 
+# * polyserial correlations between numeric and ordinal variables, 
+# * polychoric correlations between ordinal variables
+
+#str(cor_df_out)
+cor_df_out<-as.data.frame(painLoc_data) # because hetcor only takes dataframes and not tibbles
+het_cor_out_cat <- hetcor(cor_df_out%>%select(r4pain_locN_cat,r4painchr), 
+                          use = c("pairwise.complete.obs"),
+                          ML = TRUE,
+                          ncores=detectCores(logical=T))
+
+
+het_cor_out_cat
+
+table(painLoc_data$r4pain_locN_cat,painLoc_data$r4painchr)
+
+```
+
+The bivariate association fails the test for bivariate normality. This
+means that the correlation detected is a linear approximation of the
+underlying relationship between the two variables
+
+### Compoasite Chronic pain state
+
+0 NO PAIN 1 ACUTE PAIN 3 CHRONIC 4 CHRONIC WIDESPREAD
+
+```{r}
+NA_count_pain<-is.na(H_elsa_w4_6$r4painchr_ext) %>% sum    
+NA_perc_pain<-NA_count_pain/nrow(H_elsa_w4_6) * 100               
+#NA_perc_pain_orig<-(is.na(H_elsa_w4_6$r4painchr) %>% sum)/nrow(H_elsa_w4_6) * 100               
+
+ggplot(H_elsa_w4_6, aes(x = r4painchr_ext, 
+                       fill = factor(ragender, 
+                                    labels = c("Male", "Female")))) +
+  geom_bar(position = position_dodge(width = 0.9),
+           alpha = 0.8) +
+  geom_text(aes(label = after_stat(count)), 
+            stat = "count",
+            size = 3,
+            position = position_dodge(width = 0.9),
+            vjust = -0.5) +
+  theme_minimal() +
+  labs(
+    title = "Categorical chronic pain state with pain spread category ",
+    subtitle = "Categories based on the presence of multiple (3+) pain locations at once",
+    x = "Pain state Category",
+    y = "Frequency",
+    fill = "Gender",
+    caption = paste0("Wave 4 n = ",nrow(H_elsa_w4_6), 
+                   "; missing data n = ", NA_count_pain, 
+                   " (", round(NA_perc_pain,1), "%)")
+  ) 
+
+
+
+
+```
+
+## Table 1
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+library(table1)
+
+var_Ys<-c("r4painchr","r4lvimp")
+
+var_Xs<-c("r4ssupport6","r4partner","r4pain_locN_cat","r4pain_locN")
+
+var_Covs<-c("r4agey","r4agey_cat",
+              "ragender",
+              "raracem",
+              "r4cesd",
+              "r4nettotw_bu_s","r4totwq5_bu_s","r4wealthBIN",
+              "raeduc_e","r4work",
+              "r4smoken","r4drinkwn_e","r4lnlys","r4mbmi","r4MLTC")
+
+# Prepare data
+table1_data <- prepare_table1_data(H_elsa_w4_6, var_Ys, var_Xs, var_Covs)
+
+# Create the table
+table1_1 <- table1(~ r4lvimp + r4pain_locN_cat + r4cesd + r4agey + ragender + raracem +
+                      r4ssupport6 + r4partner + r4totwq5_bu_s + r4wealthBIN + raeduc_e + r4work + 
+                      r4smoken + r4drinkwn_e + r4mbmi + r4lnlys+ r4MLTC_cat |
+                     r4painchr, 
+                    data = table1_data,
+                    render.continuous = my_render_continuous,
+                    render.categorical = my_render_categorical,
+                    overall = "Total",
+                    topclass = "Rtable1-times")
+
+library(knitr)
+
+kable(as.data.frame(table1_1))
+
+
+table1_2 <- table1(~ r4ssupport6 + r4partner | r4painchr, 
+                    data = table1_data,
+                    render.continuous = my_render_continuous,
+                    render.categorical = my_render_categorical,
+                    overall = "Total",
+                    topclass = "Rtable1-times")
+
+
+
+kable(as.data.frame(table1_2))
+
+
+
+```
+
+

@@ -1,0 +1,654 @@
+---
+title: "Multiple imputation Mice"
+author: "Diego Vitali"
+output: 
+  github_document:
+    toc: True
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+editor_options: 
+  markdown: 
+    wrap: 72
+bibliography: references.bib
+
+---
+```{r setup, eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+library(lavaan)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(naniar)
+library(NbClust)
+library(readr)
+library(polycor)
+library(patchwork)
+library(corrplot)
+library(GGally)
+source("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/Sources/Paper1_func.R")
+
+paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
+
+H_elsa_w4_6<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/H_elsa_w4_6.rds")
+
+
+# refreshments: 3, 4, 6, 7, 9 and 10
+
+# Nurse Visits: 2,4,6,8,9
+
+```
+
+This documentation describes our R-based pipeline for handling missing data using 
+Multiple Imputation by Chained Equations (MICE). 
+
+This pipeline operates on data in the long data format (one row per participant per wave, with a time/wave indicator).
+
+*Features:*
+
+* Conditional imputation: The code addresses conditional imputation scenarios, such as imputing "Marital strain" only for partnered individuals. This is implemented via the where_matrix in MICE, ensuring that imputation is only performed where appropriate.
+* Data types: Variables are explicitly cast to factor (with or without ordering) or numeric  types as required. This is essential for MICE to select the correct imputation model and for downstream analyses.
+* Multicollinearity: The script includes steps for checking multicollinearity using heterogeneous correlation matrices (polycor::hetcor). This is a good practice, as highly collinear predictors can destabilize imputation models.
+* Minimal Missingness handling: For variables with very few missing values, simple imputation (median for numeric, mode for categorical) is performed before running MICE. This is efficient and avoids unnecessary complexity for almost-complete variables.
+* Missingness visualisation: The use of naniar::vis_miss to visualize missingness patterns before and after imputation is excellent for transparency and quality control.
+
+https://arxiv.org/pdf/2404.06967
+
+
+
+## Age and immortal cohort assumption
+
+We assume no death event (WAITING FOR HSE death data) and we take the baseline age as a timeinvariant predictor 
+
+```{r}
+
+H_elsa_w4_6<- H_elsa_w4_6%>% mutate(
+                            r5agey = case_when(
+                                    is.na(r5agey) ~ r4agey + 2,
+                                    TRUE ~ r5agey
+                                    ),
+                            r6agey = case_when(
+                                    is.na(r6agey) ~ r5agey + 2,
+                                    TRUE ~ r6agey
+                                    )
+                            )
+                            
+
+H_elsa_w4_6$raagey<- H_elsa_w4_6$r4agey
+      
+
+```
+
+
+## defining the imputation dataset
+
+Select relevant variables: 
+(race is excluded from the auxillary variable because sample is 97% white)
+```{r}
+Missingdata_wide <- H_elsa_w4_6 %>%
+  select(c("idauniq",
+          #varnames                          # description    (type); whether (comp)lete or (inc)omplete data
+           paste0("r",4:6,"painlv"),         #                (categorical); incomp 
+           paste0("r",4:6,"painchr_ext"),    #                (categorical); incomp 
+           paste0("r",4:6,"lvimp"),          #                (categorical); incomp 
+           paste0("r",4:6,"shlt"),           # self reported health               (categorical); incomp 
+           paste0("r",4:6,"adltot6"),        # ADL total score                    (numeric); incomp 
+           paste0("r",4:6,"partner"),        # having a partner                   (binary); comp 
+           paste0("r",4:6,"ssupport6"),      # Marital strain score             (numeric, skewed) incomplete;
+           paste0("r",4:6,"lnlys"),          # UCLA - loneliness                (numeric, skewed) incomplete;
+           "raagey",                         # Baseline age                     (numeric, normal); comp 
+           "ragender",                       # Gender                           (binary); comp 
+           #"raracem",                        # Race/ethnicity                   (binary); comp
+           paste0("r",4:6,"nettotw_bu_s"),     # Net wealth                     (numeric, skewed); incomp
+           "raeduc_e",                       # Education                        (categorical); incomp
+           paste0("r",c(4:6),"smoken"),      # smoking                          (binary); incomp
+           paste0("r",4:6,"work"),           # Working status                   (binary); incomp
+           paste0("r",4:6,"drinkwn_e"),      # Drinking                         (binary); incomp
+#           paste0("r",c(4,6),"mbmi"),        # BMI                              (numeric); incomp
+#           paste0("r",c(4,6),"hscrp"),       # CRP                              (numeric); incomp
+           paste0("r",4:6,"PA_cat"),         # Physical activity                (categorical); incomp
+           paste0("r",4:6,"cesd_lat"),       # Depression latent score          (numeric, skewed); incomp
+           paste0("r",4:6,"ssupport6"),      # Marital strain score             (numeric, skewed) incomplete;
+           paste0("r",4:6,"MLTC")            # Multiple long-term condit. count (numeric/count, skewed); incomp
+  ))
+
+#str(Missingdata_wide)
+```
+
+### Transform skewed variables
+
+Wealth: Shift to positive and log-transform.
+
+Impact and drinking: Shift/log-transform as appropriate.
+
+Create auxiliary variables for change (e.g., MLTC_change_w5, MLTC_change_w6) to 
+capture longitudinal change and reduce collinearity.
+
+```{r}
+###### TRANSFORM ###################
+### Transform wealth data
+
+# Calculate global minimums once
+global_min_wealth <- min(c(Missingdata_wide$r4nettotw_bu_s, 
+                          Missingdata_wide$r5nettotw_bu_s, 
+                          Missingdata_wide$r6nettotw_bu_s), na.rm = TRUE)
+
+global_min_lvimp <- min(c(Missingdata_wide$r4lvimp, 
+                          Missingdata_wide$r5lvimp, 
+                          Missingdata_wide$r6lvimp), na.rm = TRUE)
+
+global_min_cesd_lat <- min(c(Missingdata_wide$r4cesd_lat, 
+                          Missingdata_wide$r5cesd_lat, 
+                          Missingdata_wide$r6cesd_lat), na.rm = TRUE)
+
+
+
+# Apply same shift to all waves
+Missingdata_wide <- Missingdata_wide %>%
+  mutate(
+    r4nettotw_bu_s_log = log(r4nettotw_bu_s - global_min_wealth + 1),
+    r5nettotw_bu_s_log = log(r5nettotw_bu_s - global_min_wealth + 1),
+    r6nettotw_bu_s_log = log(r6nettotw_bu_s - global_min_wealth + 1)
+  )
+Missingdata_wide<- Missingdata_wide %>%
+  select(-r4nettotw_bu_s,-r5nettotw_bu_s,-r6nettotw_bu_s)
+
+
+### shift imp_data
+Missingdata_wide <- Missingdata_wide %>%
+  mutate(
+    # Shift data to make all values positive (if necessary)
+    r4lvimp_shifted = r4lvimp - global_min_lvimp,
+    r5lvimp_shifted = r5lvimp - global_min_lvimp,
+    r6lvimp_shifted = r6lvimp - global_min_lvimp,
+  )
+# Remove original impact variables
+
+Missingdata_wide<- Missingdata_wide %>%
+  select(-r4lvimp,-r5lvimp,-r6lvimp)
+
+### shift depr_lat data
+Missingdata_wide <- Missingdata_wide %>%
+  mutate(
+    # Shift data to make all values positive (if necessary)
+    r4cesd_lat_shifted = r4cesd_lat - global_min_cesd_lat,
+    r5cesd_lat_shifted = r5cesd_lat - global_min_cesd_lat,
+    r6cesd_lat_shifted = r6cesd_lat - global_min_cesd_lat,
+  )
+Missingdata_wide<- Missingdata_wide %>%
+  select(-r4cesd_lat,-r5cesd_lat,-r6cesd_lat)
+
+
+### Transform drinkning data
+#Missingdata_wide$r4drinkwn_e %>% log() %>% hist(breaks = seq(-1,2,0.1))
+Missingdata_wide <- Missingdata_wide %>%
+  mutate(
+    r4drinkwn_e_log  = log(r4drinkwn_e),
+    r5drinkwn_e_log  = log(r5drinkwn_e),
+    r6drinkwn_e_log  = log(r6drinkwn_e)
+  )
+Missingdata_wide<- Missingdata_wide %>%
+  select(-r4drinkwn_e,-r5drinkwn_e,-r6drinkwn_e)
+
+
+### Transform support data
+#Missingdata_wide$r4ssupport6 %>% log1p() %>% hist(breaks = seq(-1,2,0.1))
+Missingdata_wide <- Missingdata_wide %>%
+  mutate(
+    r4ssupport6_log1p  = log1p(r4ssupport6),
+    r5ssupport6_log1p  = log1p(r5ssupport6),
+    r6ssupport6_log1p  = log1p(r6ssupport6)
+  )
+Missingdata_wide<- Missingdata_wide %>%
+  select(-r4ssupport6,-r5ssupport6,-r6ssupport6)
+
+
+#str(Missingdata_wide)
+
+# wave 4 ssupport missingness
+ss4<-vis_miss(Missingdata_wide[which(Missingdata_wide$r4partner == 1),] %>% select(r4ssupport6_log1p))
+# wave 5 ssupport missingness
+ss5<-vis_miss(Missingdata_wide[which(Missingdata_wide$r5partner == 1),] %>% select(r5ssupport6_log1p))
+# wave 5 ssupport missingness
+ss6<-vis_miss(Missingdata_wide[which(Missingdata_wide$r6partner == 1),] %>% select(r6ssupport6_log1p))
+
+(ss4 + ss5 + ss6)+
+  plot_annotation(
+    title = "Missingness in conditional variable `Marital strain` total score"
+  )
+
+
+Missingdata_wide %>% select(-r4ssupport6_log1p,-r5ssupport6_log1p,-r6ssupport6_log1p) %>% vis_miss()
+
+```
+
+## Defining variables type
+```{r}
+
+bin.vars<-  c(paste0("r",4:6,"work"),         # currently working (bl only)       (binary); incomp 
+              paste0("r",4:6,"partner"),      # having a partner (imp condition)  (binary); comp 
+              paste0("r",4:6,"smoken"),       # smoking (bl only)                 (binary); incomp
+              "ragender"                     # gender                            (binary); incomp
+        #      "raracem"                       # race                              (binary); comp
+              )
+
+ord.vars<-c(paste0("r",4:6,"PA_cat"),          # Physical Activity                (cat-ordinal); incomp
+#            paste0("r",4:6,"shlt"),           # self-reported health             (cat-ordinal); incomp
+            "raeduc_e",                        # education                        (cat-ordinal); incomp
+            paste0("r",4:6,"painchr_ext")
+            )        
+
+cont.vars<-c(#paste0("r",4:6,"agey"),            # age                            (continuous); incomp
+            "raagey",                          # age  (bl only)                   (continuous); incomp
+             paste0("r",4:6,"shlt"),           # self-reported health             (cat-ordinal); incomp
+             paste0("r",4:6,"drinkwn_e_log"),# units/week (bl only)             (continuous); incomp
+             paste0("r",4:6,"lvimp_shifted"),  # units/week (bl only)             (continuous); incomp
+             paste0("r",4:6,"nettotw_bu_s_log"),# net wealth (bl only)            (continuous); incomp
+             paste0("r",4:6,"MLTC"),           # N. MLTC (bl only)                (cat-ordinal); incomp
+             paste0("r",4:6,"lnlys"),          # Lonelyness
+#             paste0("r",c(4,6),"mbmi"),        # MBMI                             (continuous); incomp
+#             paste0("r",c(4,6),"hscrp"),       # CRP                              (continuous); incomp
+             paste0("r",4:6,"adltot6"),        # count of 6 ADL items             (continuous); incomp
+             paste0("r",4:6,"painlv"),         # Pain level (0-3)                 (continuous); incomp
+             paste0("r",4:6,"ssupport6_log1p"),      # Marital strain                   (continuous); incomp 
+             paste0("r",4:6,"cesd_lat")        # cesd                             (continuous); incomp 
+            )
+
+Missingdata_wide<-Missingdata_wide %>% mutate(
+                                ragender = case_when(
+                                          ragender == 1 ~ 0, # male
+                                          ragender == 2 ~ 1, # female
+                                          TRUE ~ NA_real_
+                                          )#,
+#                                raracem = case_when(
+#                                          raracem == 1 ~ 1, # white
+#                                          raracem == 4 ~ 0, #non-white
+#                                          TRUE ~ NA_real_
+#                                          ),
+                                )
+
+```
+## Variable type definition
+
+```{r}
+
+
+# categorical variables,# The first step is that all binary and categorical incomplete variables need to be stored as type “factor”;  @wijesuriya2025multiple
+
+
+Missingdata_wide<- Missingdata_wide %>% mutate(across(all_of(ord.vars), ~factor(., ordered = T)))
+
+Missingdata_wide<- Missingdata_wide %>% mutate(across(all_of(bin.vars), ~factor(.)))
+
+Missingdata_wide<-as.data.frame(Missingdata_wide)
+
+str(Missingdata_wide)
+
+```
+
+
+# Minimal Missingmess
+
+For variables with ≤5 missing values (0.06% of total sample N = 8014), impute using median (numeric) or mode (categorical).
+
+While efficient, this approach doesn't propagate imputation uncertainty for these variables and should perhaps be reconsidered (?)
+https://pmc.ncbi.nlm.nih.gov/articles/PMC3074241/
+[@azur2011multiple]
+
+```{r eval = T}
+# Identify variables with minimal missingness
+minimal_missing <- names(which(colSums(is.na(Missingdata_wide)) > 0 & 
+                              colSums(is.na(Missingdata_wide)) <= 5))
+
+
+# Simple imputation for these variables
+for(var in minimal_missing) {
+  if(is.numeric(Missingdata_wide[[var]])) {
+    # For numeric variables: median imputation
+    Missingdata_wide[[var]][is.na(Missingdata_wide[[var]])] <- 
+      median(Missingdata_wide[[var]], na.rm = TRUE)
+  } else if(is.factor(Missingdata_wide[[var]]) || is.character(Missingdata_wide[[var]])) {
+    # For categorical variables: mode imputation
+    mode_val <- names(sort(table(Missingdata_wide[[var]]), decreasing = TRUE))[1]
+    Missingdata_wide[[var]][is.na(Missingdata_wide[[var]])] <- mode_val
+  }
+}
+
+
+# Use r6smoken to fill missing values in earlier waves
+Missingdata_wide <- Missingdata_wide %>%
+  mutate(
+    # Fill r4smoken missing values with r6smoken
+    r4smoken = case_when(
+      !is.na(r4smoken) ~ r4smoken,  # Keep existing values
+      is.na(r4smoken) ~ r6smoken    # Fill missing with wave 6
+    ),
+    
+    # Fill r5smoken missing values with r6smoken  
+    r5smoken = case_when(
+      !is.na(r5smoken) ~ r5smoken,  # Keep existing values
+      is.na(r5smoken) ~ r6smoken    # Fill missing with wave 6
+    )
+  )
+
+#str(Missingdata_wide)
+#summary(Missingdata_wide)
+```
+
+
+## wide to long
+
+Define time-invariant variables (ID, gender, race, education).
+
+Use pivot_longer() to convert repeated measures to long format, extracting the wave number and aligning variables accordingly.
+
+Visualize missingness patterns overall and for conditional variables (e.g., Marital Strain for partnered individuals) using naniar::vis_miss.
+```{r}
+
+vars_time_invariant <- c("idauniq", "ragender", 
+                         #"raracem", 
+                         "raeduc_e","raagey")
+
+Missingdata_long <- Missingdata_wide %>%
+  pivot_longer(
+    cols = -all_of(vars_time_invariant),
+    names_to = c("wave", ".value"),
+     # Improved pattern that ensures we match the full variable name
+    names_pattern = "^r([456])(.+)$") %>%
+      # Convert wave to numeric if needed
+      mutate(wave = as.numeric(wave))
+
+
+Missingdata_long  %>% vis_miss()
+
+
+```
+
+
+
+|Variable          |Type                      |Time Status     |Waves Available  |Missing % (Long Format) |
+|------------------|--------------------------|----------------|-----------------|---------|
+|idauniq           |Integer                   |Structural      |All waves        |Complete |
+|ragender          |Binary                    |Time-invariant  |Fixed            |Complete |
+|raeduc_e          |Categorical (5 levels)    |Time-invariant  |Fixed            |Variable |
+|wave              |Numeric                   |Structural      |4, 5, 6          |Complete |
+|painlv            |Continuous                |Time-varying    |4, 5, 6          |Variable |
+|painchr_ext       |Ordinal (4 levels)        |Time-varying    |4, 5, 6          |Variable |
+|shlt              |Ordinal (5 levels)        |Time-varying    |4, 5, 6          |Variable |
+|adltot6           |Count/Continuous          |Time-varying    |4, 5, 6          |Variable |
+|partner           |Binary                    |Time-varying    |4, 5, 6          |Complete |
+|ssupport6_log1p   |Continuous                |Time-varying    |4, 5, 6          |Variable (conditional) |
+|raagey            |Continuous                |Time-invariant  |Fixed            |Complete |
+|smoken            |Binary                    |Time-varying    |4, 5, 6          |Variable |
+|work              |Binary                    |Time-varying    |4, 5, 6          |Variable |
+|PA_cat            |Ordinal (4 levels)        |Time-varying    |4, 5, 6          |Variable |
+|cesd_lat          |Continuous                |Time-varying    |4, 5, 6          |Variable |
+|MLTC              |Count/Continuous          |Time-varying    |4, 5, 6          |Variable |
+|nettotw_bu_s_log  |Continuous (log-trans.)   |Time-varying    |4, 5, 6          |Variable |
+|lvimp_shifted     |Continuous (shifted)      |Time-varying    |4, 5, 6          |Variable |
+|drinkwn_e_log   |Continuous (log1p-trans.) |Time-varying    |4, 5, 6          |Variable |
+
+
+### Data Structure
+
+* Level 1: Observations (waves) nested within individuals
+* Level 2: Individuals (participants)
+
+**Level 1 Predictors** (Time-Varying): These are variables that change over time within the same individual across waves 4, 5, and 6. level 1 structural variable is therefore "wave"
+
+
+```{r}
+############################
+#### **LEVEL 1 Predictors** 
+###########################
+# Binary time-varying
+bin_TimeVar.long <- c("work","smoken","partner")
+
+# Continuous time-varying
+cont_TimeVar.long <- c("painlv","shlt","drinkwn_e_log","nettotw_bu_s_log",
+                       "ssupport6_log1p","lvimp_shifted","cesd_lat_shifted",
+                       "lnlys",
+                       # the following are integer ordinal/count variables, we re ordered but treating as integer here to facilitate mice predictions
+                       "adltot6","MLTC",
+                       "PA_cat","painchr_ext") 
+
+lv1_vars<-c(cont_TimeVar.long,bin_TimeVar.long)
+```
+
+
+**Level 2 Predictors** (Time-Invariant): These are variables that remain constant for each individual across all waves (or are measured once at baseline). Level 2 structural variable is therefore "idauniq"
+
+
+```{r}
+############################
+#### **LEVEL 2 Predictors** 
+###########################
+
+# Binary time-invariant
+bin_TimeInvar.long <- c("ragender") ## taking race out because it sample is 97% white
+
+# Continuous time-invariant
+cont_TimeInvar.long<- c("raagey", # Age at baseline (though technically increases, treated as baseline)
+                        "raeduc_e") # this is ordered but treating as integer here to facilitate mice predictions
+
+lv2_vars<-c(bin_TimeInvar.long,cont_TimeInvar.long)
+
+
+```
+
+
+Complete and incomplete vars
+```{r}
+
+complete.vars<-names(Missingdata_long)[colSums(is.na(Missingdata_long)) == 0]
+incomplete.vars<-names(Missingdata_long)[colSums(is.na(Missingdata_long)) != 0]
+
+# in mice the id variable is required to be integer format
+Missingdata_long$idauniq <- as.integer(Missingdata_long$idauniq)  # Convert idauniq to integer
+
+# converting ordered factors to integers
+Missingdata_long<-Missingdata_long %>%
+                    mutate(
+                      adltot6 = as.integer(adltot6),
+                      raeduc_e = as.integer(raeduc_e),
+                      PA_cat = as.integer(PA_cat),
+                      MLTC = as.integer(MLTC),
+                      painchr_ext = as.integer(painchr_ext)
+                    )
+
+```
+
+## MICE imputation
+
+Linear MixedModel-based FCS on https://arxiv.org/pdf/2404.06967
+
+The FCS-2L approach imputes missing values using a series of conditional LMMs specified for each incomplete variable, tailored according to the distribution of the variable. 
+
+The mice, micemd and miceadds R packages contain functions for implementing FCS-2L, identified by names starting with "2l" (2-level imputation).
+
+
+
+In addition in our case we have a conditional variable, that is a variable having structural 
+missingness that depend on the value of another variable: 
+
+* Marital Strain (conditional on having a partner)
+
+
+As with FCS-1L-wide method, the variables first need to be stored as correct type before 
+generating the imputations, as described earlier. *The cluster variable must be of type integer*.
+
+Therefore we configure the variable types so that each variable is imputed using an appropriate method: logistic regression for binary variables, ordered logistic regression for ordinal variables, and polytomous regression for unordered categorical data.
+
+```{r}
+# Check missingness by variable
+vars_struct_missing<-c("ssupport6_log1p")
+incomplete.vars_noStruct<-incomplete.vars[!incomplete.vars %in% vars_struct_missing]
+
+
+missingness_by_var <- Missingdata_long %>%
+  mutate(
+    # Mark structural NAs that shouldn't count
+    ssupport6_log1p_missing = ifelse(partner == 0, FALSE, is.na(ssupport6_log1p)),
+#    mbmi_missing = ifelse(wave == 5, FALSE, is.na(mbmi)),
+#    hscrp_missing = ifelse(wave == 5, FALSE, is.na(hscrp))
+  ) %>%
+  summarise(
+    # For conditional variables - only count eligible cases
+    ssupport6_log1p_pct = mean(ssupport6_log1p_missing[partner == 1], na.rm = TRUE) * 100,
+#    mbmi_pct = mean(mbmi_missing[wave != 5], na.rm = TRUE) * 100,
+#    hscrp_pct = mean(hscrp_missing[wave != 5], na.rm = TRUE) * 100,
+    
+    # For other variables - standard calculation
+    across(all_of(incomplete.vars_noStruct), 
+           ~mean(is.na(.)) * 100, .names = "{.col}_pct")
+  ) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "pct_missing") %>%
+  arrange(desc(pct_missing))
+
+print(missingness_by_var)
+
+# Use the maximum missingness rate
+max_missing <- max(missingness_by_var$pct_missing)
+m_imputations <- ceiling(max_missing)
+
+print(paste("Number of imputations:", m_imputations))
+
+
+
+
+library(mice)
+library(miceadds)
+library(micemd)
+# Define imputation methods
+meth1 <- make.method(Missingdata_long)
+
+meth1[complete.vars] <- ""  # No imputation for complete variables
+
+## Time variant methods
+Lv1_incomplete.vars<-incomplete.vars[incomplete.vars %in% lv1_vars]
+
+incomplete_continuous<-cont_TimeVar.long[cont_TimeVar.long %in% Lv1_incomplete.vars]
+meth1[incomplete_continuous] <- "2l.pmm" # Two-level predictive mean matching for incomplete continuous variables
+
+incomplete_binary<-bin_TimeVar.long[bin_TimeVar.long %in% Lv1_incomplete.vars]
+
+meth1[incomplete_binary] <- "2l.bin"  # Two-level logistic regression
+
+## structural missingness will fail with 2l.xxx methods 
+#meth1["mbmi"] <- "pmm"        # Single-level instead of 2l.pmm (wave 5 structural missing)
+#meth1["hscrp"] <- "pmm"       # Single-level instead of 2l.pmm (wave 5 structural missing)
+meth1["ssupport6_log1p"] <- "pmm"   # Single-level instead of 2l.pmm (conditional on partner)
+
+
+
+## time invariant methods
+Lv2_incomplete.vars<-incomplete.vars[incomplete.vars %in% lv2_vars]
+meth1["raeduc_e"] <- "2lonly.pmm"   # Safer as raeduc_e has specific values 
+
+
+# Define predictor Matrix
+pred <- make.predictorMatrix(Missingdata_long)
+
+# with "0" we tell which variables are not predictors
+# leaving blank the row means all rows
+#pred["predicted","predictor"]
+pred[,c("idauniq")] <- 0
+
+# time-fixed variable should not be imputed using time
+# all time fixed variables are complete in this case
+pred[lv2_vars, c("wave")] <- 0
+
+# Specify alias as cluster variable
+pred[, "idauniq"] <- -2  # Cluster grouping variable
+
+
+# To specify random slopes for a predictor in a univariate imputation model for a certain variable, 
+# number “2” should be included in the corresponding column variable for the row variable that 
+# is being imputed. 
+
+# Only use random slopes for variables with sufficient complete cases (20,000+)
+# However, we need to prevent overfitting because with random slops we fit 2 parameters 
+# per person (random intercept + random slope). With 8014 individuals we need to fit 16,028 random effect parameters, 
+# but we only have 23,808 observations. This creates an overfitting situation.
+
+# Apply random slopes selectively
+#pred[c("ssupport6_log1p"),"wave"] <- 2 
+
+### Special Exclusions ###
+# Prevent painchr_ext from predicting painlv
+pred["painchr_ext", "painlv"] <- 0  
+pred["painlv", "painchr_ext"] <- 0  
+# we do not use partner as predictor of spouse support because it is conditional on partner:
+# we do not want to impute ssupport when it should be NA
+pred["ssupport6_log1p", "partner"] <- 0
+
+
+## this was added after I noticed that pmm struggled (numerical instability) with conditional variables as predictors given that these have systematic missingness
+conditional_vars <- c("ssupport6_log1p")
+pred[, conditional_vars] <- 0
+
+
+
+
+#pred[ord_TimeVar.long, ] <- 0
+
+
+
+################################################################################
+##### CONDITIONAL IMPUTATION STEP 2 - "WHERE" MATRIX
+#################################################################################
+
+
+where_matrix <- make.where(Missingdata_long, "missing")
+
+Missingdata_long <- Missingdata_long %>%
+  mutate(
+    # Set support to NA for non-partnered individuals
+    ssupport6_log1p = ifelse(partner == 0, NA, ssupport6_log1p),
+    # Set BMI and SCRP to NA for wave 5 because there was no nurse visit at that wave
+#    mbmi  = ifelse(wave == 5, NA, mbmi),
+#    hscrp = ifelse(wave == 5, NA, hscrp)
+  )
+
+
+
+
+# Modify where matrix to prevent imputation when partner=0
+where_matrix[Missingdata_long$partner == 0 & is.na(Missingdata_long$ssupport6_log1p), "ssupport6_log1p"] <- FALSE
+# Modify where matrix to prevent imputation when wave=5 from bmi and HSCRP
+#where_matrix[Missingdata_long$wave == 5 & is.na(Missingdata_long$mbmi), "mbmi"] <- FALSE
+#where_matrix[Missingdata_long$wave == 5 & is.na(Missingdata_long$hscrp), "hscrp"] <- FALSE
+
+
+
+```
+
+```{r, eval=FALSE}
+
+set.seed(200720)
+imp_1 = mice(data = Missingdata_long, 
+            m = 12, 
+            predictorMatrix = pred, 
+            method = meth1, 
+            where = where_matrix,
+            diagnostics = TRUE,
+            printFlag = TRUE,
+            maxit = 10)
+saveRDS(imp_1, paste0(paper1_rds_path,"mice_imputationlong_rev4.rds"))
+
+```
+
+
+```{r eval=T}
+imp_1<-readRDS(paste0(paper1_rds_path,"mice_imputationlong_rev4.rds"))
+summary(imp_1)
+#saveRDS(imp, paste0(paper1_rds_path,"mice_imputation.rds"))
+plot(imp_1)
+
+
+
+# Extract one completed dataset
+imputed_result <- complete(imp_1, 1)
+
+Missingdata_long %>% vis_miss()
+imputed_result %>% vis_miss()
+# wave 4 ssupport missingness
+imputed_result %>% filter(partner == 1) %>% select(ssupport6_log1p) %>% vis_miss
+```
