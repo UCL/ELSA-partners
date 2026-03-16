@@ -752,7 +752,7 @@ H_elsa_w4_6<- H_elsa_w4_6%>% mutate(
                                                 labels = c("No pain", 
                                                            "Acute pain", #"Acute widespread",
                                                            "Chronic pain", 
-                                                           "Chronic 3+locations")),,
+                                                           "Chronic 3+locations")),
                             r6painchr_ext = case_when(
                                     r6painchr == 0 ~ 0,
                                     r6painchr == 1 & r6pain_locN_cat == "2 or less location"  ~ 1,
