@@ -963,12 +963,14 @@ p
 
 ```{r}
 
+# invariance= used here (not CONSTRAINB): constrains both a and d for items 1-5, 8-9
+# in a single call — equivalent to the two CONSTRAINB blocks in spec_par / spec_full_scalar above
 final_partial_Scalar_model <- mirt::multipleGroup(
                   data = mirt_data,
                   model = 1,
                   itemtype = "2PL",
                   group = group,
-                  invariance =c(names(mirt_data)[c(1:5,8,9)]),
+                  invariance = c("shopa", "housewka", "walkra", "mealsa", "clim1a", "dressa", "toilta"),
                   verbose = TRUE
                   )
 #coef(final_partial_Scalar_model, simplify = T, IRTpars =T)
@@ -1051,9 +1053,6 @@ ggplot(param_wide, aes(x = b_Full_Scalar  , y = b_Partial_metric)) +
 
 
 ## Conclusion
-```{r}
-saveRDS(final_partial_Scalar_model,"~/private/WP5_data/model_fits/final_partial_Scalar_IRT_model.rds")
-```
 
 this is the estimate of each person level of the latent variable $\theta$. The ability estimates (impact estimates) are under 
 column "F1" and their SE are in col SE_FI. Only the first few rows are printed
@@ -1066,7 +1065,6 @@ for (wave in 2:8){
     df_name <- paste0("sc_df_", wave)
     df<- get(df_name)
 
-    model_fit <- model_results_list[[paste0("wave_", wave)]]
     df$LVscore_free  <-fscores(unconstrained_model,method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,1]
     df$LVscore_metric<-fscores(full_metric_model,method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,1]
     df$LVscore_scalar<-fscores(full_scalar_model,method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,1]
@@ -1144,7 +1142,6 @@ for (wave in 2:8){
     df_name <- paste0("sc_df_", wave)
     df<- get(df_name)
 
-    model_fit <- model_results_list[[paste0("wave_", wave)]]
     df$LVscore_free  <-fscores(unconstrained_model, method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,1]
     df$LVscore_metric<-fscores(final_partial_metric_model, method =  "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,1]
     df$LVscore_scalar<-fscores(final_partial_Scalar_model, method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,1]
