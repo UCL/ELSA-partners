@@ -1,0 +1,1222 @@
+---
+title: "Measurement invariance 2PL model of pain impact in ELSA"
+output: 
+  github_document:
+    toc: True
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+---
+
+```{r warning= FALSE, message=FALSE}
+library(tidyverse) # For data wrangling and basic visualizations
+library(psych) # For descriptive stats and assumption checks
+library(mirt) # IRT modeling
+
+library(naniar)
+library(gridExtra)
+
+
+# IRT fit indices recovery
+pull_IRT_fit_indices <- function(model) {
+  fit <- M2(model)
+  c(
+    AIC = model@Fit$AIC,
+    BIC = model@Fit$BIC,
+    RMSEA = fit$RMSEA,
+    TLI = fit$TLI,
+    CFI = fit$CFI
+  )
+}
+
+# IRT Parameter recovery
+get_parameters <- function(model) {
+  coef_list <- coef(model, simplify = TRUE, IRTpars = TRUE)
+  bind_rows(lapply(names(coef_list), function(g) {
+    as_tibble(coef_list[[g]]) %>%
+      mutate(Group = g, Item = rownames(coef_list[[g]]))
+  }))
+}
+
+if(interactive()) mirtCluster()
+```
+
+# Introduction
+
+[REFRASE] In longitudinal investigations, the question of measurement invariance within IRT is: Does the form of the item response function vary across measurement occasions, or is it invariant over occasions? If the item response function varies across time, the probabilities of various item responses for a given latent variable score have changed over time. Measurement invariance is then violated, and observed changes in item scores over time are ambiguous and difficult to interpret. Change could stem from either real change among the individuals involved or the changing item parameters. However, if the item response function is invariant over time, then the observed changes in item scores cannot result from changes in item parameters and must have other explanations (such as real growth). Some violations of invariance may be trivial from a practical standpoint. Also, violations at the item level may not have substantial scale-level impact if items are combined. ([Millsap 2010](https://srcd.onlinelibrary.wiley.com/doi/10.1111/j.1750-8606.2009.00109.x)).
+
+
+[REFRASE] The idea that item response theory (IRT) models yield invariant parameter estimates is widely accepted among scholars interested in achieving truly scientific measurements in social and behavioral sciences [Asún et al. 2017](#references)
+
+
+[REFRASE] In IRT models, measurement invariance occurs when items exhibit the same item characteristic curves (ICC) across groups of participants or, equivalently, items exhibit the same parameter estimates across groups[Embretson & Reise 2000](#references). 
+
+internal invariance
+
+    IRT models are internally invariant because they will yield the same parameter estimates within the single population of items and participants (and samples drawn from that population) for which evidence of fit exists. [Asún et al. 2017](#references)
+    
+     IRT models themselves cannot support the assumption of external invariance of the results (i.e., the invariance between populations and samples). [Asún et al. 2017](#references)
+    
+IRT is only internally invariant, i.e., inferences regarding the invariance of results are restricted to the populations of items and participants that are accurately represented in the sample of participants and items used in the calibration of the test, provided that the model fits the data. Thus, the properties observed in a given sample are not generalizable to other populations or samples without further evidence.
+
+## Aim
+
+Investigate whether the items are invariant in their measurement structure across time? 
+
+# Method
+How should you investigate whether the items are invariant in their measurement structure across time? First, find whether a chosen IRT model fits adequately across occasions, apart from invariance constraints on model parameters (configural invariance). If a single IRT model fits all occasions, we then check whether the item response functions vary across occasions. Under measurement invariance, the item parameters have the same values across all occasions. To investigate invariance, fit a model that constrains the item parameters to invariance simultaneously across all occasions.  A likelihood ratio test compares the fit of the unconstrained and that of the constrained models. ([Millsap 2010](https://srcd.onlinelibrary.wiley.com/doi/10.1111/j.1750-8606.2009.00109.x))
+
+If full invariance is rejected, we investigate which items are changing over time in their item parameters. Here, we fit models that invoke partial invariance constraints, relaxing constraints on some items to find a model that fits well and permits a minimum number of item response functions to vary over time. Given such a model, we next consider whether the changes in the item response functions are important. Judgments of importance are subjective, but effect size measures for differences in item response functions are available. ([Millsap 2010](https://srcd.onlinelibrary.wiley.com/doi/10.1111/j.1750-8606.2009.00109.x))
+
+## SAMPLE
+
+```{r, eval=TRUE,echo=T,warning=FALSE,message=FALSE,error=FALSE}
+
+## this is marked as "all" because includes both respondents and partners
+#H_elsa_all<-read.csv("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/Hg3_w1_9_ALL.tab")
+H_elsa_all<-read.csv("~/private/WP5_data/Hg3_w1_9_ALL.tab")
+
+
+
+```
+
+### Chronic pain indicator
+
+To identify respondents who erienced persistent pain symptoms, all participants were required to report pain severities of  moderate or greater at both the analysed and previous ELSA data collection interval"
+
+```{r}
+# load the chronic pain categorising function
+source("~/ELSA-partners/Sources/chronic_pain_var.R")
+
+# Create chrpain variables for waves x to 9
+waves <- 1:9
+for (wave in waves) {
+  H_elsa_all <- create_chrpain_variable(H_elsa_all, wave)
+}
+
+#table(H_elsa_w2_$r2chrpain)
+
+
+
+```
+
+
+### Wave cross-sectional subsets
+
+```{r}
+
+for (wave in 2:8) {
+  filtered_data <- dplyr::filter(H_elsa_all, get(paste0("inw", wave)) == 1)
+#  filtered_data <- dplyr::filter(H_elsa_all, inw1 == 1)
+  assign(paste0("H_elsa_w", wave), filtered_data)
+}
+
+```
+
+
+### Selecting 50yo+
+
+Of this sample of the elsa current wave respondents I am excluding respondent aged < 50 as ELSA is focused on english population aged 50 and older.
+
+```{r, eval=TRUE,echo=F,warning=FALSE,message=FALSE,error=FALSE}
+
+
+# removing all participants who younger than 50
+
+for (wave in 2:8) {
+  age_var <- paste0("r", wave, "agey")
+  df_name <- paste0("H_elsa_w", wave)
+  df <- get(df_name)
+  
+  filtered_data <- dplyr::filter(df, is.na(get(age_var)) | get(age_var) > 49)
+  assign(paste0("H_elsa_w", wave), filtered_data)
+}
+
+
+```
+
+
+## Item list
+```{r}
+######################################## 8 ITEM as per paper
+#varlist.irt<-c("idauniq", 
+#               "r2shopa", "r2housewka", "r2walkra", "r2mealsa",
+#               "r2clim1a", "r2lifta", 
+#               "r2hlthlm", #"hlmact", # hlmact has local dependence with r2hlthlm and r2shopa
+#               "r2beda")
+
+######################################## 9 ITEM solution 
+#varlist.irt<-c("idauniq", 
+#               "r2shopa" , "r2housewka" , "r2walkra" , "r2mealsa",
+#               "r2clim1a" , "r2lifta" ,
+#               "r2hlthlm" , #hlmact ,
+#               "r2dressa", "r2toilta")#, "r2chaira")
+```
+
+
+Simplify DFs for irt analysis: I am creating separate dfs for each wave
+```{r}
+# Simplify DFs for irt analysis
+for (wave in 2:8) {
+ df_name <- paste0("H_elsa_w", wave)
+  df <- get(df_name)
+  itmname<-c("shopa" , "housewka" , "walkra" , "mealsa",
+             "clim1a" , "lifta" ,
+             "hlthlm" ,
+             "dressa", "toilta")
+  varlist<-paste0("r",wave,itmname)
+  
+  df <- df[c("idauniq",varlist)]
+  assign(paste0("sc_df_", wave), df)
+}
+
+```
+
+
+# Missing data
+```{r}
+for (wave in 2:8) {
+  df_name <- paste0("sc_df_", wave)
+  df <- get(df_name)
+  df[df < 0] <- NA
+  assign(paste0("sc_df_", wave), df)
+}
+
+```
+
+
+## missing data charting
+```{r}
+
+naniar.plot_list <- list()
+
+for (wave in 2:8) {
+  df_name <- paste0("sc_df_", wave)
+  df <- get(df_name)
+  
+  varlist <- paste0("r", wave, itmname)
+  
+  # Create the missing data plot for each wave and store in the list
+  naniar.plot_list[[paste0("wave_", wave)]] <- vis_miss(df %>% select(all_of(varlist)), sort_miss = TRUE) +
+    ggtitle(paste("Wave", wave))  # Add titles to each plot
+}
+
+# Combine all plots into a single grid
+grid.arrange(grobs = naniar.plot_list[1:4], ncol = 2, nrow = 2) 
+grid.arrange(grobs = naniar.plot_list[5:7], ncol = 3, nrow = 2) 
+
+```
+
+
+
+### full vs partially incomplete response patterns
+```{r}
+
+
+for (wave in 2:8) {
+  df_name <- paste0("sc_df_", wave)
+  df <- get(df_name)
+  n.items<-length(varlist)
+  paste0("W",wave," full pattern missing: ",sum(rowSums(is.na(df[-1]))==n.items)) %>% print
+  paste0("W",wave," Some item missing: ",sum(rowSums(is.na(df[-1]))>0 & rowSums(is.na(df[-1])) < n.items)) %>% print
+}
+
+ 
+
+
+```
+
+
+## Impute missing values for partially incomplete patterns
+
+
+we fit the 2PL model on the data as it is (i.e. with the missingness):
+
+```{r}
+# Model estimation. Here we indicate that we are estimating a 2PL model, and standard errors for parameters are estimated.
+
+model_results_list <- list()
+
+for (wave in 2:8){
+    df_name <- paste0("sc_df_", wave)
+    df<- get(df_name)
+
+    fit <- tryCatch({
+      mirt::mirt(df[-1],
+                  1,
+                  itemtype = "2PL",
+                  verbose = TRUE)
+    }, error = function(e) {
+      message(paste("Error fitting model for wave", wave, ":", e$message))
+      NULL
+    })
+    
+    # Store the model result in the list
+    model_results_list[[paste0("wave_", wave)]] <- fit
+}
+```
+
+and then we use Maximum A Posteri (MAP) estimation to estimate the latent trait scores for individuals with missing responses. 
+
+data with full missing rows (pattern completely missing) is not inputed
+
+These fscores (factor scores or latent scores) estimated with MAP can be used to impute the missing item responses based on the relationship between the latent trait and the observed responses. This approach assumes  that individuals with similar trait scores have similar item response patterns.
+
+```{r}
+for (wave in 2:8){
+  df_name <- paste0("sc_df_", wave)
+  df<- get(df_name)
+  
+  model_fit <- model_results_list[[paste0("wave_", wave)]]
+  Lscores <- fscores(model_fit, method = 'MAP') # "MAP" for the maximum a-posteriori (i.e, Bayes modal)
+  tryCatch({
+    fulldata <- imputeMissing(model_fit, Lscores) %>%as.data.frame()
+    }, error = function(e) {
+      message(paste("Error fitting model for wave", wave, ":", e$message))
+      NULL
+    })
+    
+  fulldata$idauniq<-df$idauniq
+  fulldata<-fulldata[c(ncol(fulldata),1:n.items)]
+  assign(paste0("sc_df_", wave), fulldata)
+
+}
+```
+
+
+In comparison with the original dataset we have now imputed the gaps and we will omit only the full patterns missing
+```{r}
+
+for (wave in 2:8) {
+  df_name <- paste0("sc_df_", wave)
+  df <- get(df_name)
+  n.items<-length(varlist)
+  paste0("W",wave," full pattern missing: ",sum(rowSums(is.na(df[-1]))==n.items)) %>% print
+  paste0("W",wave," Some item missing: ",sum(rowSums(is.na(df[-1]))>0 & rowSums(is.na(df[-1])) < n.items)) %>% print
+  df<-na.omit(df)
+  assign(paste0("sc_df_", wave), df)
+
+
+}
+
+
+```
+
+
+
+# 2PL Model estimation (imputed sample)
+Here we indicate that we are estimating a 2PL model, and standard errors for parameters are estimated.
+
+```{r}
+model_results_list <- list()
+
+for (wave in 2:8){
+    df_name <- paste0("sc_df_", wave)
+    df<- get(df_name)
+
+    fit <- tryCatch({
+      mirt::mirt(df[-1],
+                  1,
+                  itemtype = "2PL",
+                  full.scores.SE = TRUE,
+                  full.scores = TRUE,
+                  verbose = TRUE)
+    }, error = function(e) {
+      message(paste("Error fitting model for wave", wave, ":", e$message))
+      NULL
+    })
+    
+    # Store the model result in the list
+    model_results_list[[paste0("wave_", wave)]] <- fit
+    
+}
+```
+
+
+
+# Meas. invariance 
+
+
+## Visual inspection
+
+In IRT, one commonly used fit index is the M2 statistic, also known as the weighted root mean square residual (WRMR). The M2 statistic assesses the fit of the observed item response patterns to the expected response patterns based on the fitted IRT model. Lower values of the M2 statistic indicate better model fit.
+
+$$P(X_{is} = 1|\theta_s, \beta_i, \alpha_i) = \frac{e^{(\alpha_i(\theta_s-\beta_i))}}{1+ e^{(\alpha_i((\theta_s-\beta_i))}}$$
+
+below are our estimated item-specifici coefficients described in the equation above (where a =  $\alpha$ and b = $\beta$). Note that g = 0 and u = 1: these are the additional parameters used in 3PL model (upper and lower asynthote) and which in the 2pl model are assumed as respectively 0 and 1.
+
+Visual inspection of the paramenter invariance across waves
+
+```{r}
+
+coef_data <- data.frame()
+
+
+for (wave in 2:8){
+  
+  model_fit <- model_results_list[[paste0("wave_", wave)]]
+
+  coef_estimates<-coef(model_fit, IRTpars = T, simplify = T)
+  
+  coef_df <- data.frame(
+      wave = wave,
+      item = rownames(coef_estimates$items),
+      a = coef_estimates$items[,1],
+      b = coef_estimates$items[,2]
+    )
+    
+    # Combine with the overall data frame
+    coef_data <- rbind(coef_data, coef_df)
+}
+
+coef_data <- coef_data %>%  mutate(item = sub("^r[0-9]+", "", item))
+
+
+
+label_data_a <- coef_data %>%
+  filter(wave == 8) %>%
+  mutate(label_y = a) 
+
+# Now, let's create the plot
+g_a<-ggplot(coef_data, aes(x = wave, y = a, color = item, group = item)) +
+  geom_line() +  # Connect points with lines
+  geom_point() + # Add points for each wave
+  geom_text(data = label_data_a, 
+            aes(x = wave, y = label_y, label = item),
+            hjust = -0.1, # Adjust horizontal position of labels
+            vjust = 0.5,  # Adjust vertical position of labels
+            show.legend = FALSE) + # Don't show labels in the legend
+  labs(title = "Discrimination Parameter (a) Across Waves - unconstrained estimates",
+       x = "Wave",
+       y = "Discrimination (a)") +
+  theme_minimal() +
+  theme(legend.position = "none") + # Remove legend as we now have labels
+  scale_x_continuous(breaks = 2:8) +
+  coord_cartesian(xlim = c(2, 8.5)) # Extend x-axis slightly to make room for labels
+
+label_data_b <- coef_data %>%
+  filter(wave == 8) %>%
+  mutate(label_y = b) 
+
+# Now, let's create the plot
+g_b<-ggplot(coef_data, aes(x = wave, y = b, color = item, group = item)) +
+  geom_line() +  # Connect points with lines
+  geom_point() + # Add points for each wave
+  geom_text(data = label_data_b, 
+            aes(x = wave, y = label_y, label = item),
+            hjust = -0.1, # Adjust horizontal position of labels
+            vjust = 0.5,  # Adjust vertical position of labels
+            show.legend = FALSE) + # Don't show labels in the legend
+  labs(title = "Differentiation Parameter (b) Across Waves - unconstrained estimates",
+       x = "Wave",
+       y = "Differentiation (b)") +
+  theme_minimal() +
+  theme(legend.position = "none") + # Remove legend as we now have labels
+  scale_x_continuous(breaks = 2:8) +
+  coord_cartesian(xlim = c(2, 8.5)) # Extend x-axis slightly to make room for labels
+
+
+# Combine the two plots into a single grid
+grid.arrange(g_a, g_b, nrow = 2)
+
+
+```
+
+
+## Configural invariance
+This is satisfied if the basic model structure is invariant across groups, indicating that participants from different groups conceptualize the constructs in the same way.  It is still necessary to run this step in multiple group confirmatory factor analysis (We have done this in SEM). Here we should notece a consistent, good fit across all waves with little changes in our FIT indices.
+
+I would like to stress here that these models are fit to a dataset which includes refreshments at wave 3, 4, 6, 7, 9.
+
+When a refreshment sample is drawn, households from HSE are selected for ELSA if at least one HSE interview was conducted with an age eligible respondent who agreed to be re-contacted. Each refreshment sample added then becomes part of the cohort issued again at subsequent waves. ([ELSA website](https://www.elsa-project.ac.uk/about-elsa))
+
+```{r}
+
+mfit_df <- data.frame()
+
+for (wave in 2:8) {
+  model_name <- paste0("wave_", wave)
+  model_fit <- model_results_list[[model_name]]
+  
+  if (!is.null(model_fit)) {
+    tryCatch({
+      fit_param <- mirt::M2(model_fit)
+      
+      wave_fit <- data.frame(
+        Wave = wave,
+        M2 = fit_param$M2,
+        df = fit_param$df,
+        p_value = fit_param$p,
+        RMSEA = fit_param$RMSEA,
+        RMSEA_05 = fit_param$RMSEA_5,
+        RMSEA_95 = fit_param$RMSEA_95,
+        CFI = fit_param$CFI,
+        TLI = fit_param$TLI
+      )
+      
+      mfit_df <- rbind(mfit_df, wave_fit)
+    }, error = function(e) {
+      warning(paste("Error calculating fit for wave", wave, ":", e$message))
+    })
+  } else {
+    warning(paste("No model fit available for wave", wave))
+  }
+}
+
+mfit_df$refreshed<-c(0,1,1,0,1,0,0)
+
+# Sort the dataframe by Wave
+mfit_df <- mfit_df[order(mfit_df$Wave), ]
+mfit_df
+```
+
+## Metric invariance
+
+This model tests if different groups respond to the items in the same way, that is, if the strengths of the relations between specific scale items and their respective underlying construct are the same across groups. If metric invariance is satisfied, obtained ratings can be compared across groups and observed item differences will indicate group differences in the underlying latent construct. Research has suggested that at least partial metric invariance must be established before continuing in the sequence of tests (Vandenberg & Lance, 2000). This model is tested by constraining all factor loadings to be the same across groups. [Coulacoglou & Saklofske 2017](https://www.sciencedirect.com/science/article/abs/pii/B9780128022191000018)
+
+
+```{r}
+all_data <- list()
+
+for (wave in 2:8) {
+  df_name <- paste0("sc_df_", wave)
+  df <- get(df_name)
+  df$wave <- wave
+  colnames(df)<-c("idauniq", itmname,"wave")
+  all_data[[wave-1]] <- df
+}
+
+combined_data <- do.call(rbind, all_data)
+
+# Create a grouping variable
+group <- combined_data$wave %>% as.factor()
+
+# Prepare data for mirt (exclude idauniq and wave)
+mirt_data <- combined_data[, !(names(combined_data) %in% c("idauniq", "wave"))]
+
+# Fit the unconstrained model
+unconstrained_model <- mirt::multipleGroup(
+  data = mirt_data,
+  model = 1,
+  itemtype = "2PL",
+  group = group,
+  verbose = TRUE
+)
+
+# Fit the constrained model
+full_metric_model <- mirt::multipleGroup(
+  data = mirt_data,
+  model = 1,
+  itemtype = "2PL",
+  group = group,
+  invariance =c("slopes"),
+  verbose = TRUE
+)
+#coef(full_metric_model, simplify = T, IRTpars =T)
+
+```
+
+
+In the configural (unconstrained) model, all parameters are freely estimated and thus we fit a separate 
+2PL IRT model for each wav and we estimate:
+
+* One discrimination parameter (a) for each item each wave
+* One difficulty parameter (b) estimated at each wave
+
+in the metric model we have:
+
+* One discrimination parameter (a) for each item and assumed equal across waves
+* One difficulty parameter (b) estimated at item each wave
+
+### LRT - Likelihood ratio test
+```{r}
+anova(full_metric_model,unconstrained_model)
+
+```
+
+While the likelihood ratio test suggests that full metric invariance is not supported:
+
+the information criteria (AIC and BIC) actually favor the constrained model. This mixed result suggests that the violation of full metric invariance might not be severe. However, it's still worth exploring this violation to understand its impact on the invariance assumption.
+
+
+### Explore paramenter differences
+
+We explore the parameter differences when we assume full metric invariance
+
+```{r}
+
+full_params <- get_parameters(full_metric_model)
+unconstrained_params <- get_parameters(unconstrained_model)
+
+# Parameter differences
+param_diff <- bind_rows(
+  full_params %>% mutate(Model = "Full Metric"),
+  unconstrained_params %>% mutate(Model = "Unconstrained")
+)
+
+# Extract item parameters
+extract_params <- function(param_data, Model = "") {
+  param_data %>%
+    mutate(
+      a = items[,1],
+      b = items[,2],
+      Item = rownames(items),
+      Model = Model
+    ) %>%
+    select(Item, Group, Model, a, b)
+}
+
+param_comparison <- bind_rows(
+  extract_params(full_params, Model = "Full_Metric"),
+  extract_params(unconstrained_params, Model = "Unconstrained")
+)
+
+# Pivot wider for easy comparison
+param_wide <- param_comparison %>%
+  pivot_wider(names_from = Model, values_from = c(a, b))
+
+### Full metric
+
+# Visualize parameter differences
+# parameter a
+ggplot(param_wide, aes(x = a_Full_Metric, y = a_Unconstrained)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Discrimination (a) Parameters: Full Metric vs Unconstrained",
+       x = "Full Metric", y = "Unconstrained") +
+  xlim(min(param_wide$a_Full_Metric, param_wide$a_Unconstrained),
+       max(param_wide$a_Full_Metric, param_wide$a_Unconstrained)) +  # Set same limits for x
+  ylim(min(param_wide$a_Full_Metric, param_wide$a_Unconstrained),
+       max(param_wide$a_Full_Metric, param_wide$a_Unconstrained)) +  # Set same limits for y
+  theme_minimal() +
+  facet_wrap(~Group)
+
+# parameter b : kind of irrelevant here because intercept is free to vary
+#ggplot(param_wide, aes(x = b_Full_Metric, y = b_Unconstrained)) +
+#  geom_point() +
+#  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+#  labs(title = "Difficulty (b) Parameters: Full Metric vs Unconstrained",
+#       x = "Full Metric", y = "Unconstrained") +
+#  xlim(min(param_wide$b_Full_Metric, param_wide$b_Unconstrained),
+#       max(param_wide$b_Full_Metric, param_wide$b_Unconstrained)) +  # Set same limits for x
+#  ylim(min(param_wide$b_Full_Metric, param_wide$b_Unconstrained),
+#       max(param_wide$b_Full_Metric, param_wide$b_Unconstrained)) +  # Set same limits for y
+#  theme_minimal() +
+#  facet_wrap(~Group)
+
+```
+
+
+### Partial metric invariance
+
+First we identify potentially non-invariant items carrying out some sensitivity analyses:
+
+First, we need to identify which items might be causing the lack of longitudinal invariance. We can do this by freeing the constraints on each item one at a time. This way we compare (sequentially) the model fit attained freeing one parameter with the fit of the full metric invariance model, and we can run a LRT to see whether (at each wave) freeing one parameter provides a better measurement model. 
+
+```{r}
+refmodel <- full_metric_model
+
+
+
+spec_a =c(
+        "F=1-9 \nCONSTRAINB = (2-9, a1)",
+        "F=1-9 \nCONSTRAINB = (1, a1),  (3-9, a1)",
+        "F=1-9 \nCONSTRAINB = (1-2, a1), (4-9, a1)",
+        "F=1-9 \nCONSTRAINB = (1-3, a1), (5-9, a1)",
+        "F=1-9 \nCONSTRAINB = (1-4, a1), (6-9, a1)",
+        "F=1-9 \nCONSTRAINB = (1-5, a1), (7-9, a1)",
+        "F=1-9 \nCONSTRAINB = (1-6, a1), (8-9, a1)",
+        "F=1-9 \nCONSTRAINB = (1-7, a1), (9, a1)",
+        "F=1-9 \nCONSTRAINB = (1-8, a1)"
+        )
+
+estmodels <- vector('list', ncol(mirt_data))
+
+for(i in 1:ncol(mirt_data)){
+    spec =spec_a[i]
+    estmodels[[i]] <- multipleGroup(mirt_data, 
+                                    model = spec_a[i], 
+                                    itemtype = "2PL",
+                                    group = group, 
+                                    verbose = T,
+                                    technical = list(NCYCLES = 3000)
+                                #    invariance =c("free_means","free_vars"),
+                                    )
+}
+#anova(refmodel, estmodels[[1]])
+```
+
+
+#### Results of the sensitivity analysis
+```{r}
+anovas <- lapply(estmodels, function(x, refmodel) anova(refmodel, x),
+refmodel=refmodel)
+# family-wise error control
+p <- do.call(rbind, lapply(anovas, function(x) x[2, 'p']))
+p<-tibble("p"=p,"p.BHcor"=p.adjust(p, method = 'BH'))
+
+p$item<-itmname
+p
+```
+Benjamini & Hochberg (1995) correction ("BH"). The "BH" (aka "fdr") and "BY" methods of Benjamini, Hochberg, and Yekutieli control the false discovery rate, the expected proportion of false discoveries amongst the rejected hypotheses. The false discovery rate is a less stringent condition than the family-wise error rate, so these methods are more powerful than the others.
+
+
+Benjamini, Y., and Hochberg, Y. (1995). Controlling the false discovery rate: a practical and powerful approach to multiple testing. Journal of the Royal Statistical Society Series B, 57, 289–300. doi:10.1111/j.2517-6161.1995.tb02031.x.
+
+#### Empirically defined "partial invariance model"
+
+Here I created a partial invariance model where I free the estimation of the "a" paramenter for the items that seems to fail the invariance assumption and the I compare this partial invariance model with the unconstrained model.
+
+look for BH corrected p<.05: these items should be left free to vary to reduce their inviance violation
+
+
+#### LRT - likelihood ratio test
+
+We test fit of the partial invariance model with the unconstrained model.
+```{r}
+
+spec_par<-"F=1-9 \nCONSTRAINB = (1-5, a1) , (8-9,a1)"
+
+final_partial_metric_model <- mirt::multipleGroup(
+                  data = mirt_data,
+                  model = spec_par,
+                  itemtype = "2PL",
+                  group = group,
+#                  invariance =c("free_means","free_vars"),
+                  technical = list(NCYCLES = 3000),
+                  verbose = TRUE
+                  )
+#coef(final_partial_metric_model, simplify = T)
+```
+
+```{r}
+
+anova(full_metric_model, unconstrained_model)
+anova(final_partial_metric_model, unconstrained_model)
+
+
+fit_indices <- tibble(
+  Model = c("Full Metric", "Partial", "Unconstrained"),
+  bind_rows(
+    pull_IRT_fit_indices(full_metric_model),
+    pull_IRT_fit_indices(final_partial_metric_model),
+    pull_IRT_fit_indices(unconstrained_model)
+  )
+)
+
+print(fit_indices)
+```
+
+
+However, even assuming metric invariance the actual impact of these violations may not significantly affect the precision of measure overall.
+
+#### Explore paramenter differences
+
+We explore the parameter differences when we assume full and partial metric invariance
+
+```{r}
+
+
+full_params <- get_parameters(full_metric_model)
+partial_params <- get_parameters(final_partial_metric_model)
+unconstrained_params <- get_parameters(unconstrained_model)
+
+#Parameter differences
+param_diff <- bind_rows(
+  full_params %>% mutate(Model = "Full Metric"),
+  partial_params %>% mutate(Model = "Partial"),
+  unconstrained_params %>% mutate(Model = "Unconstrained")
+)
+
+# Extract item parameters
+extract_params <- function(param_data, Model = "") {
+  param_data %>%
+    mutate(
+      a = items[,1],
+      b = items[,2],
+      Item = rownames(items),
+      Model = Model
+    ) %>%
+    select(Item, Group, Model, a, b)
+}
+
+param_comparison <- bind_rows(
+  extract_params(full_params, Model = "Full_Metric"),
+  extract_params(partial_params,Model = "Partial"),
+  extract_params(unconstrained_params, Model = "Unconstrained")
+)
+
+# Pivot wider for easy comparison
+param_wide <- param_comparison %>%
+  pivot_wider(names_from = Model, values_from = c(a, b))
+```
+
+
+
+```{r}
+# Visualize parameter differences
+ggplot(param_wide, aes(x = a_Partial , y = a_Unconstrained)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Discrimination Parameters: Partial Metric vs Unconstrained",
+       x = "Full Metric", y = "Unconstrained") +
+    theme_minimal() +
+  facet_wrap(~Group)
+
+#ggplot(param_wide, aes(x = b_Partial , y = b_Unconstrained)) +
+#  geom_point() +
+#  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+#  labs(title = "Difficulty Parameters: Partial Metric vs Unconstrained",
+#       x = "Full Metric", y = "Unconstrained") +
+#    theme_minimal() +
+#  facet_wrap(~Group)
+
+
+```
+
+## Scalar invariance
+
+Scalar, or intercept, invariance is required to compare (latent) means. Establishing scalar invariance indicates that observed scores are related to the latent scores, that is, individuals who have the same score on the latent construct would obtain the same score on the observed variable regardless of their group membership. This model is tested by constraining the intercepts of items to be the same across groups. This is the last model necessary to compared scores across groups. All additional tests are optional and may be theoretically meaningful in specific contexts. [Coulacoglou & Saklofske 2017](https://www.sciencedirect.com/science/article/abs/pii/B9780128022191000018)
+
+
+Scalar invariance is tested by constraining the item intercepts to be equivalentbetween groups. The constraints applied in the metric invariance model are retained. Any items that had unequal loadings in the metric invariance model (and were allowed to vary) should be allowed to vary in the scalar invariance model because it is meaningless to test for equal item intercepts if the metric of the items differs across groups. The model with constrained item intercepts (Fig. 1E) is then compared to the metric invariance model (Fig. 1C) to determine fit.([Putnik and Bornstein 2016](https://www.sciencedirect.com/science/article/pii/S0273229716300351?via%3Dihub#f0010])).
+
+Finding scalar noninvariance leaves three options: (1) investigate the source of noninvariance by sequentially releasing (in a backward approach) or adding (in a forward approach) item intercept constraints and retesting the model until a partially invariant model is achieved, (2) omit items with noninvariant intercepts and retest the configural, metric, and scalar invariance models, or (3) assume that the construct is noninvariant and discontinue invariance and group difference testing.
+
+```{r}
+## partial metric invariance 
+
+partial_metric_model <- final_partial_metric_model
+
+
+spec_full_scalar<-'F=1-9 
+CONSTRAINB = (1-5, a1) , (8-9,a1)
+CONSTRAINB = (1-9, d)
+'
+full_scalar_model <- mirt::multipleGroup(
+                          data = mirt_data,
+                          model = spec_full_scalar,
+                          itemtype = "2PL",
+                          group = group,
+#                          invariance =c("free_means","free_vars"),
+                          verbose = TRUE
+)
+
+#coef(full_scalar_model, simplify = T)
+
+```
+
+### LRT - Likelihood ratio test
+
+```{r}
+anova(full_scalar_model,partial_metric_model)
+
+```
+
+
+### Explore parameter differences
+
+We explore the parameter estimate differences when we assume full scalar invariance
+
+```{r}
+
+full_params <- get_parameters(full_scalar_model)
+part_metric_params <- get_parameters(partial_metric_model)
+
+# Parameter differences
+param_diff <- bind_rows(
+  full_params %>% mutate(Model = "Full scalar"),
+  part_metric_params %>% mutate(Model = "Partial_metric")
+)
+
+# Extract item parameters
+extract_params <- function(param_data, Model = "") {
+  param_data %>%
+    mutate(
+      a = items[,1],
+      b = items[,2],
+      Item = rownames(items),
+      Model = Model
+    ) %>%
+    select(Item, Group, Model, a, b)
+}
+
+param_comparison <- bind_rows(
+  extract_params(full_params, Model = "Full_Scalar"),
+  extract_params(part_metric_params, Model = "Partial_metric")
+)
+
+# Pivot wider for easy comparison
+param_wide <- param_comparison %>%
+  pivot_wider(names_from = Model, values_from = c(a, b))
+
+### Full scalar
+
+# Visualize parameter differences
+# parameter a
+ggplot(param_wide, aes(x = a_Full_Scalar , y = a_Partial_metric)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Discrimination (a) Parameters: Full Scalar vs Partial_metric",
+       x = "Full Scalar", y = "Partial_metric") +
+  xlim(min(param_wide$a_Full_Scalar , param_wide$a_Partial_metric),
+       max(param_wide$a_Full_Scalar , param_wide$a_Partial_metric)) +  # Set same limits for x
+  ylim(min(param_wide$a_Full_Scalar , param_wide$a_Partial_metric),
+       max(param_wide$a_Full_Scalar , param_wide$a_Partial_metric)) +  # Set same limits for y
+  theme_minimal() +
+  facet_wrap(~Group)
+
+# parameter b
+ggplot(param_wide, aes(x = b_Full_Scalar, y = b_Partial_metric)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Difficulty (b) Parameters: Full Scalar vs Partial_metric",
+       x = "Full Scalar", y = "Partial_metric") +
+  xlim(min(param_wide$b_Full_Scalar, param_wide$b_Partial_metric),
+       max(param_wide$b_Full_Scalar, param_wide$b_Partial_metric)) +  # Set same limits for x
+  ylim(min(param_wide$b_Full_Scalar, param_wide$b_Partial_metric),
+       max(param_wide$b_Full_Scalar, param_wide$b_Partial_metric)) +  # Set same limits for y
+  theme_minimal() +
+  facet_wrap(~Group)
+
+```
+
+
+
+### partial scalar invariance
+
+First we identify potentially non-invariant items:
+
+First, we need to identify which items might be causing the lack of invariance. We can do this by freeing the constraints on each item one at a time.
+```{r}
+refmodel <- full_scalar_model
+
+specList_par_scalar<-c(
+      "F=1-9 
+      CONSTRAINB =  (1-5, a1) , (8-9,a1)
+      CONSTRAINB = (2-9, d)
+      ",
+      "F=1-9 
+      CONSTRAINB =  (1-5, a1) , (8-9,a1)
+      CONSTRAINB = (1, d), (3-9, d)
+      ",
+      "F=1-9 
+      CONSTRAINB =  (1-5, a1) , (8-9,a1)
+      CONSTRAINB = (1-2, d), (4-9, d)
+      ",
+      "F=1-9 
+      CONSTRAINB =  (1-5, a1) , (8-9,a1)
+      CONSTRAINB = (1-3, d), (5-9, d)
+      ",
+      "F=1-9 
+      CONSTRAINB =  (1-5, a1) , (8-9,a1)
+      CONSTRAINB = (1-4, d), (6-9, d)
+      ",
+      "F=1-9 
+      CONSTRAINB =  (1-5, a1) , (8-9,a1)
+      CONSTRAINB = (1-5, d), (7-9, d)
+      ",
+      "F=1-9 
+      CONSTRAINB =  (1-5, a1) , (8-9,a1)
+      CONSTRAINB = (1-6, d), (8-9, d)
+      ",
+      "F=1-9 
+      CONSTRAINB =  (1-5, a1) , (8-9,a1)
+      CONSTRAINB = (1-7, d), (9, d)
+      ",
+      "F=1-9 
+      CONSTRAINB =  (1-5, a1) , (8-9,a1)
+      CONSTRAINB = (1-8, d)
+      ")
+      
+estmodels <- vector('list', ncol(mirt_data))
+for(i in 1:ncol(mirt_data)){
+  
+    estmodels[[i]] <- multipleGroup(mirt_data, 
+                                    model = specList_par_scalar[i], 
+                                    itemtype = "2PL",
+                                    group = group, 
+                                    verbose = T
+#                                    invariance =c("free_means","free_vars")
+                                    )
+}
+```
+
+#### Results of the sensitivity analysis
+
+```{r}
+
+anovas <- lapply(estmodels, function(x, refmodel) anova(refmodel, x),
+refmodel=refmodel)
+
+
+# family-wise error control
+p <- do.call(rbind, lapply(anovas, function(x) x[2, 'p']))
+p<-tibble("p"=p,"p.BHcor"=p.adjust(p, method = 'BH'))
+
+p$label<-names(mirt_data)
+
+p
+
+```
+
+
+#### Empirically defined "partial invariance model"
+
+```{r}
+
+final_partial_Scalar_model <- mirt::multipleGroup(
+                  data = mirt_data,
+                  model = 1,
+                  itemtype = "2PL",
+                  group = group,
+                  invariance =c(names(mirt_data)[c(1:5,8,9)]),
+                  verbose = TRUE
+                  )
+#coef(final_partial_Scalar_model, simplify = T, IRTpars =T)
+
+
+```
+
+
+#### LRT - likelihood ratio test
+
+```{r}
+anova(final_partial_Scalar_model,final_partial_metric_model)
+
+```
+
+#### Explore paramenter differences
+
+We explore the parameter differences when we assume full and partial scalar invariance is assumed
+
+```{r}
+
+full_params <- get_parameters(full_scalar_model)
+partial_params <- get_parameters(final_partial_Scalar_model)
+unconstrained_params <- get_parameters(final_partial_metric_model)
+
+# 5. Parameter differences
+param_diff <- bind_rows(
+  full_params %>% mutate(Model = "Full scalar"),
+  partial_params %>% mutate(Model = "Partial scalar"),
+  unconstrained_params %>% mutate(Model = "Partial metric")
+)
+
+# Extract item parameters
+extract_params <- function(param_data, Model = "") {
+  param_data %>%
+    mutate(
+      a = items[,1],
+      b = items[,2],
+      Item = rownames(items),
+      Model = Model
+    ) %>%
+    select(Item, Group, Model, a, b)
+}
+
+param_comparison <- bind_rows(
+  extract_params(full_params, Model = "Full_Scalar"),
+  extract_params(partial_params,Model = "Partial_Scalar"),
+  extract_params(unconstrained_params, Model = "Partial_metric")
+)
+
+# Pivot wider for easy comparison
+param_wide <- param_comparison %>%
+  pivot_wider(names_from = Model, values_from = c(a, b))
+```
+
+
+
+```{r}
+ggplot(param_wide, aes(x = a_Full_Scalar  , y = a_Partial_metric )) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Discrimination Parameters: Partial Scalar vs Partial metric",
+       x = "Full Metric", y = "Unconstrained") +
+    theme_minimal() +
+  facet_wrap(~Group)
+
+ggplot(param_wide, aes(x = b_Full_Scalar  , y = b_Partial_metric)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Difficulty Parameters: Partial Scalar vs Partial metric",
+       x = "Full Metric", y = "Unconstrained") +
+    theme_minimal() +
+  facet_wrap(~Group)
+
+
+```
+
+
+
+
+
+## Conclusion
+
+this is the estimate of each person level of the latent variable $\theta$. The ability estimates (impact estimates) are under 
+column "F1" and their SE are in col SE_FI. Only the first few rows are printed
+
+
+## Noise associated with full metric and full scalar invariance
+```{r}
+
+for (wave in 2:8){
+    df_name <- paste0("sc_df_", wave)
+    df<- get(df_name)
+
+    model_fit <- model_results_list[[paste0("wave_", wave)]]
+    df$LVscore_free  <-fscores(unconstrained_model,method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,1]
+    df$LVscore_metric<-fscores(full_metric_model,method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,1]
+    df$LVscore_scalar<-fscores(full_scalar_model,method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,1]
+ #   df$LVscore_free.SE  <-fscores(unconstrained_model,method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,2]
+#    df$LVscore_metric.SE<-fscores(full_metric_model,method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,2]
+#    df$LVscore_scalar.SE<-fscores(full_scalar_model,method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,2]
+    assign(df_name,df)
+}
+
+```
+
+
+
+```{r}
+# Initialize combined_df before the loop
+combined_df <- data.frame()
+
+for (wave in 2:8) {
+  df_name <- paste0("sc_df_", wave)
+  df <- get(df_name)
+  df$Wave <- wave  # Add a column to identify the wave
+  
+  # Difference score for metric and scalar models
+  df$Metric_Diff <- df$LVscore_free - df$LVscore_metric
+  df$Scalar_Diff <- df$LVscore_metric - df$LVscore_scalar
+  
+  # Append to the combined data frame
+  combined_df <- bind_rows(combined_df, df)
+}
+
+# Create two separate data frames for Metric and Scalar
+metric_df <- combined_df %>%
+  select(Wave, LVscore_free, Metric_Diff) %>%
+  rename(Diff = Metric_Diff) %>%
+  mutate(Diff_Type = "Metric")
+
+scalar_df <- combined_df %>%
+  select(Wave, LVscore_free, Scalar_Diff) %>%
+  rename(Diff = Scalar_Diff) %>%
+  mutate(Diff_Type = "Scalar")
+
+# Combine both for unified plotting
+plot_df <- bind_rows(metric_df, scalar_df)
+
+# Plot for Metric Differences
+ggplot(metric_df, aes(x = LVscore_free, y = Diff)) +
+  geom_point(alpha = 0.5) +  # Scatter plot of Metric differences
+  geom_hline(yintercept = 0, color = "red") +
+  geom_hline(yintercept = 0.05, color = "blue") +
+  geom_hline(yintercept = -0.05, color = "blue") +
+  facet_wrap(~ Wave, ncol = 4) +  # Facet by Wave
+  labs(title = "LV_difference:Full Metric vs Unconstrained longitudinal model",
+       x = "Unconstrained Latent Score (LVscore_free)",
+       y = "Difference (Metric - Free)") +
+  theme_minimal()
+
+# Plot for Scalar Differences
+ggplot(scalar_df, aes(x = LVscore_free, y = Diff)) +
+  geom_point(alpha = 0.5) +  # Scatter plot of Scalar differences
+  geom_hline(yintercept = 0, color = "red") +
+  geom_hline(yintercept = 0.05, color = "blue") +
+  geom_hline(yintercept = -0.05, color = "blue") +
+  facet_wrap(~ Wave, ncol = 4) +  # Facet by Wave
+  labs(title = "LV_difference:Full Scalar vs Full Metric",
+       x = "Unconstrained Latent Score (LVscore_free)",
+       y = "Difference (Scalar - Free)") +
+  theme_minimal()
+
+```
+
+## Noise associated with Partial metric and Partial measurement invariance
+```{r}
+
+for (wave in 2:8){
+    df_name <- paste0("sc_df_", wave)
+    df<- get(df_name)
+
+    model_fit <- model_results_list[[paste0("wave_", wave)]]
+    df$LVscore_free  <-fscores(unconstrained_model, method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,1]
+    df$LVscore_metric<-fscores(final_partial_metric_model, method =  "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,1]
+    df$LVscore_scalar<-fscores(final_partial_Scalar_model, method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,1]
+   # df$LVscore_free.SE  <-fscores(unconstrained_model, method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,2]
+  #  df$LVscore_metric.SE<-fscores(final_partial_metric_model, method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,2]
+  #  df$LVscore_scalar.SE<-fscores(final_partial_Scalar_model, method = "EAP", full.scores = T,full.scores.SE = T)[group == wave,][,2]
+    assign(df_name,df)
+}
+
+
+```
+
+
+
+```{r}
+# Initialize combined_df before the loop
+combined_df <- data.frame()
+
+for (wave in 2:8) {
+  df_name <- paste0("sc_df_", wave)
+  df <- get(df_name)
+  df$Wave <- wave  # Add a column to identify the wave
+  
+  # Difference score for metric and scalar models
+  df$Metric_Diff <- df$LVscore_free - df$LVscore_metric
+  df$Scalar_Diff <- df$LVscore_free - df$LVscore_scalar
+  
+  # Append to the combined data frame
+  combined_df <- bind_rows(combined_df, df)
+}
+
+# Create two separate data frames for Metric and Scalar
+metric_df <- combined_df %>%
+  select(Wave, LVscore_free, Metric_Diff) %>%
+  rename(Diff = Metric_Diff) %>%
+  mutate(Diff_Type = "Metric")
+
+scalar_df <- combined_df %>%
+  select(Wave, LVscore_free, Scalar_Diff) %>%
+  rename(Diff = Scalar_Diff) %>%
+  mutate(Diff_Type = "Scalar")
+
+# Combine both for unified plotting
+plot_df <- bind_rows(metric_df, scalar_df)
+
+# Plot for Metric Differences
+ggplot(metric_df, aes(x = LVscore_free, y = Diff)) +
+  geom_point(alpha = 0.5) +  # Scatter plot of Metric differences
+  geom_hline(yintercept = 0, color = "red") +
+  geom_hline(yintercept = 0.05, color = "blue") +
+  geom_hline(yintercept = -0.05, color = "blue") +
+  facet_wrap(~ Wave, ncol = 4) +  # Facet by Wave
+  labs(title = "LV_difference:Partial Metric invariance assumption vs Unconstrained longitudinal model",
+       x = "Unconstrained Latent Score (LVscore_free)",
+       y = "Difference (Metric - Free)") +
+  theme_minimal()
+
+# Plot for Scalar Differences
+ggplot(scalar_df, aes(x = LVscore_free, y = Diff)) +
+  geom_point(alpha = 0.5) +  # Scatter plot of Scalar differences
+  geom_hline(yintercept = 0, color = "red") +
+  geom_hline(yintercept = 0.05, color = "blue") +
+  geom_hline(yintercept = -0.05, color = "blue") +
+  facet_wrap(~ Wave, ncol = 4) +  # Facet by Wave
+  labs(title = "LV_difference:Partial Scalar vs Unconstrained longitudinal model",
+       x = "Unconstrained Latent Score (LVscore_free)",
+       y = "Difference (Scalar - Free)") +
+  theme_minimal()
+
+
+```
+
+
+
+#References
+
+* Asún, R. A., Rdz-Navarro, K., & Alvarado, J. M. (2017). The sirens’ call in psychometrics: the invariance of IRT models. Theory & Psychology, 27(3), 389-406.
+* Embretson, S. E., & Reise, S. P. (2013). Item response theory. Psychology Press.
