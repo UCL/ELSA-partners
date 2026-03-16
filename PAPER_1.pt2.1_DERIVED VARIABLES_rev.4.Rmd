@@ -361,7 +361,7 @@ updated_mids <- label_variables_for_LTA(updated_mids)
 ## Write mids to rds
 ```{r, eval=FALSE, echo=FALSE}
 
-#saveRDS(updated_mids, paste0(paper1_rds_path,"mice_updatedMIDS_rev4.rds"))
+saveRDS(updated_mids, paste0(paper1_rds_path,"mice_updatedMIDS_rev4.rds"))
 
 
   ```
