@@ -17,7 +17,7 @@ chronic_pain_var <- function(df, pain_fr_var, hepag_var, painlv_var) {
     
     # Handle missing values
     is.na(df[[pain_fr_var]]) ~ NA_real_,
-    df[[pain_fr_var]] == 1 & is.na(df[[painlv_var]]) ~ 1,
+    df[[pain_fr_var]] == 1 & is.na(df[[painlv_var]]) ~ 1,  # conservative: pain reported but severity missing → classified as acute (not NA)
     
     # Default to acute pain for any other combinations
     TRUE ~ NA_real_
@@ -2074,7 +2074,7 @@ label_variables_for_LTA <- function(mids_object) {
           time = wave - 3,
           # Binary MLTC variable
           Sex_BIN = case_when(
-            ragender == "0" ~ "Male",
+            ragender == "0" ~ "Male",   # ragender recoded 1→0 (male), 2→1 (female) in pt2; stored as character after mice 2l.bin
             ragender == "1" ~ "Female",
             TRUE ~ NA_character_
           )%>% factor(levels = c("Female", "Male")),

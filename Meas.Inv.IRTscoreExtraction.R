@@ -13,9 +13,9 @@
 #
 # Invariance summary (from Measurement_invariance_IRT.Rmd):
 #   - Discrimination (a) constrained: items 1-5, 8-9
-#     (shopa, housewka, walkra, mealsa, hlthlm, dressa, toilta)
+#     (shopa, housewka, walkra, mealsa, clim1a, dressa, toilta)
 #   - Difficulty (d) constrained:     items 1-5, 8-9
-#   - Items 6-7 (clim1a, lifta) freed at metric and scalar level
+#   - Items 6-7 (lifta, hlthlm) freed at metric and scalar level (BH-corrected p < 0.05)
 #   - Practical impact of constraints: latent score differences
 #     vs unconstrained < +/-0.05 across all waves
 # ============================================================
