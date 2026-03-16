@@ -23,11 +23,14 @@ library(polycor)
 library(patchwork)
 library(corrplot)
 library(GGally)
-source("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/Sources/Paper1_func.R")
 
-paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
+#source("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/Sources/Paper1_func.R")
+source("Sources/Paper1_func.R")
 
-H_elsa_w4_6<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/H_elsa_w4_6.rds")
+#paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
+paper1_rds_path<-"~/private/WP5_data/rds/"
+
+H_elsa_w4_6<-readRDS(paste0(paper1_rds_path,"H_elsa_w4_6.rds"))
 
 
 # refreshments: 3, 4, 6, 7, 9 and 10
@@ -631,7 +634,7 @@ imp_1 = mice(data = Missingdata_long,
             diagnostics = TRUE,
             printFlag = TRUE,
             maxit = 10)
-saveRDS(imp_1, paste0(paper1_rds_path,"mice_imputationlong_rev4.rds"))
+#saveRDS(imp_1, paste0(paper1_rds_path,"mice_imputationlong_rev4.rds"))
 
 ```
 
@@ -639,7 +642,6 @@ saveRDS(imp_1, paste0(paper1_rds_path,"mice_imputationlong_rev4.rds"))
 ```{r eval=T}
 imp_1<-readRDS(paste0(paper1_rds_path,"mice_imputationlong_rev4.rds"))
 summary(imp_1)
-#saveRDS(imp, paste0(paper1_rds_path,"mice_imputation.rds"))
 plot(imp_1)
 
 
