@@ -19,17 +19,10 @@ library(NbClust)
 library(cluster)
 library(readr)
 
-#source("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/Sources/Paper1_func.R")
 source("Sources/Paper1_func.R")
 
-
-#Imputed_datasets<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/mice_imputationlong_rev4.rds")
 Imputed_datasets<-readRDS("~/private/WP5_data/rds/mice_imputationlong_rev4.rds")
-
-#paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
 paper1_rds_path<-"~/private/WP5_data/rds/"
-
-#paper1_MODELS_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/LatGrCrv_mod/Pain - trajectory profiling/model_fits/"
 paper1_MODELS_rds_path<-"~/private/WP5_data/model_fits/"
 
 # refreshments: 3, 4, 6, 7, 9 and 10
@@ -56,17 +49,27 @@ incomplete variables that were imputed:
 * "ssupport6_log1p", 
 * "nettotw_bu_s_log"
 
+## Pass-through variables from upstream pipeline
+
+The following LTA variables are not derived in this file — they enter via
+`mice_imputationlong_rev4.rds` and are propagated as-is through `updated_mids`:
+
+| Variable | Derived in | Location |
+|---|---|---|
+| `raeduc_e` | `PAPER_1.pt1_Data_prep.Rmd` | line 375: `-15` recoded to `2` ("Other education"); imputed with `2lonly.pmm` in pt2 |
+| `MLTC` | `PAPER_1.pt1_Data_prep.Rmd` | lines 683–702: `create_MLTC_variable()` — Poole 2020 definition + psyche; imputed with `2l.pmm` in pt2 |
+| `cesd_lat_shifted` | `PAPER_1.pt2_IMPUTATION_MICE_long.Rmd` | lines 174–176: `rXcesd_lat - global_min_cesd_lat` (shift before imputation); imputed with `2l.pmm` |
+
 ## Derived variables
 
-
-
-
-### Health impact scores 
+### Health impact scores
 Impact is a derived variable based on lvimp_shifted and this was a complete variable
 
 We use wave 4 as the baseline to get the reference medoid from this
 
 ```{r,echo=FALSE, eval = F, warning=FALSE,message=FALSE,error=FALSE}
+# eval=FALSE: PAM bootstrap is expensive. Pre-computed result stored in
+# Impact_clustStability_boot2000.rds. Set eval=TRUE to regenerate.
 
 #Use first wave as reference (first wave)
 imputed.df4<-imputed.df%>%filter(wave == 4)
@@ -203,7 +206,8 @@ data_w4<-data_long%>% filter(wave == 4)
 data_w5<-data_long%>% filter(wave == 5)
 data_w6<-data_long%>% filter(wave == 6)
 
-cluster_wave <- function(data, wave_num) {
+
+cluster_wave <- function(data, wave_num, n_clusters){
  # PAM clustering
   pam_result <- pam(data$lnlys, k = n_clusters, metric = "manhattan")
   
@@ -237,9 +241,9 @@ cluster_wave <- function(data, wave_num) {
 }
 
 # Run clustering for each wave
-results_w4 <- cluster_wave(data_w4, 4)
-results_w5 <- cluster_wave(data_w5, 5)
-results_w6 <- cluster_wave(data_w6, 6)
+results_w4 <- cluster_wave(data_w4, n_clusters = 2, wave_num = 4)
+results_w5 <- cluster_wave(data_w5, n_clusters = 2, wave_num = 5)
+results_w6 <- cluster_wave(data_w6, n_clusters = 2, wave_num = 6)
 
 comparison <- data.frame(
   Wave = c(4, 5, 6),
@@ -279,6 +283,7 @@ apply_loneliness_clustering <- function(mids_object, ref_medoids = c(1.00, 1.75)
 }
 
 # Apply to your mids object
+# ref_medoids c(1.00, 1.75) validated as stable across waves 4–6 (see results_w4/5/6 above)
 updated_mids <- apply_loneliness_clustering(updated_mids, ref_medoids = c(1.00, 1.75))
 
 
@@ -351,9 +356,6 @@ We Transform categorical and ordinal variables into binary variables to ease LTA
 # are set as integer as required by lmest()
 
 updated_mids <- label_variables_for_LTA(updated_mids)
-
-#saveRDS(updated_mids, "c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/updated_midslong.rds")
-#updated_mids<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/updated_midslong.rds")
 
 ```
 
