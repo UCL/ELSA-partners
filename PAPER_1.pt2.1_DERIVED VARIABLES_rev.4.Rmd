@@ -18,11 +18,19 @@ library(ggplot2)
 library(NbClust)
 library(cluster)
 library(readr)
-source("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/Sources/Paper1_func.R")
 
-Imputed_datasets<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/mice_imputationlong_rev4.rds")
-paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
-paper1_MODELS_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/LatGrCrv_mod/Pain - trajectory profiling/model_fits/"
+#source("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/Sources/Paper1_func.R")
+source("Sources/Paper1_func.R")
+
+
+#Imputed_datasets<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/mice_imputationlong_rev4.rds")
+Imputed_datasets<-readRDS("~/private/WP5_data/rds//mice_imputationlong_rev4.rds")
+
+#paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
+paper1_rds_path<-"~/private/WP5_data/rds/"
+
+#paper1_MODELS_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/LatGrCrv_mod/Pain - trajectory profiling/model_fits/"
+paper1_MODELS_rds_path<-"~/private/WP5_data/model_fits/"
 
 # refreshments: 3, 4, 6, 7, 9 and 10
 
@@ -353,7 +361,7 @@ updated_mids <- label_variables_for_LTA(updated_mids)
 ## Write mids to rds
 ```{r, eval=FALSE, echo=FALSE}
 
-saveRDS(updated_mids, paste0(paper1_rds_path,"mice_updatedMIDS_rev4.rds"))
+#saveRDS(updated_mids, paste0(paper1_rds_path,"mice_updatedMIDS_rev4.rds"))
 
 
   ```
