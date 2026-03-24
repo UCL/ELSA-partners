@@ -358,7 +358,7 @@ prepare_table1_data <- function(data, var_Ys, var_Xs, var_Covs, strat_var = "r4p
   label(table1DF$r4lvimp) <- "Health impact IRT score (> is worse)"
   label(table1DF$r4painchr) <- "Chronic Pain Status"
   label(table1DF$r4ssupport6) <- "Marital Strain (> worse, max = 4)"
-  label(table1DF$r4partner)<- "Whether has partnership (1 = yes)"
+  label(table1DF$r4partner)<- "Partnership status"
   label(table1DF$r4pain_locN) <- "Number of Pain Locations"
   label(table1DF$r4pain_locN_cat) <- "Number of Pain Locations"
   label(table1DF$r4cesd) <- "CESD score (7-itm > is worse, max = 7)"
@@ -1975,11 +1975,11 @@ IMPACT_parametrisation_to_mice_objs <- function(mids_object, ref_centers) {
       # latent trait
       current_data <- categorize_wave(current_data, "lvimp_shifted", ref_centers)
       
-      # Create the 3-level categorization
-      current_data <- current_data %>% 
+      # Create the 3-level categorization (diagnostic; lvimp_shifted_cat is the LTA input)
+      current_data <- current_data %>%
         mutate(lvimp_shifted_cat3 = case_when(
           lvimp_shifted_cat == 0 ~ 0,
-          lvimp_shifted_cat < 2 ~ 1, 
+          lvimp_shifted_cat < 2 ~ 1,
           lvimp_shifted_cat >= 2 ~ 2,
           TRUE ~ NA_real_
         ))
@@ -2031,8 +2031,8 @@ add_wealth_quintiles_to_mice <- function(mids_object, w4quintile_breaks_log) {
       # Add wealth quintile variables
       current_data <- current_data %>%
         mutate(
-          # Create quintiles using log-scale values directly (fixed across imputations)
-          nettotw_bu_s_Q = cut(nettotw_bu_s_log, 
+          # Intermediate quintile variable; wealthQ_bin is the LTA input (nettotw_bu_s_Q retained for traceability)
+          nettotw_bu_s_Q = cut(nettotw_bu_s_log,
                                breaks = w4quintile_breaks_log, 
                                labels = FALSE,
                                include.lowest = TRUE),

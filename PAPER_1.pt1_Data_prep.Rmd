@@ -24,12 +24,12 @@ library(polycor)
 library(patchwork)
 library(corrplot)
 library(GGally)
-source("Sources/Paper1_func.R")
+source("~/ELSA-partners/Sources/Paper1_func.R")
 
-ELSA_tab_path<-"~/private/WP5_data/tab/"
-clean_tab_path<-"~/private/WP5_data/"
-paper1_rds_path<-"~/private/WP5_data/rds/"
-paper1_MODELS_rds_path<-"~/private/WP5_data/model_fits/"
+ELSA_tab_path<-"~/private_WP5/WP5_data/tab/"
+clean_tab_path<-"~/private_WP5/WP5_data/"
+paper1_rds_path<-"~/private_WP5/WP5_data/rds/"
+paper1_MODELS_rds_path<-"~/private_WP5/WP5_data/model_fits/"
 
 
 # refreshments: 3, 4, 6, 7, 9 and 10

@@ -1,0 +1,344 @@
+---
+title: "Change of Pain classes"
+author: "Diego Vitali"
+output: 
+  github_document:
+    toc: True
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+editor_options: 
+  markdown: 
+    wrap: 72
+bibliography: references.bib
+---
+
+```{r setup, eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(patchwork)
+library(GGally)
+library(ggdag)
+library(mice)
+library(kableExtra)
+
+
+library(parallel)
+library(future)
+library(future.apply)
+library(LMest)
+
+source("~/ELSA-partners/Sources/Paper1_func.R")
+
+paper1_rds_path<- "~/private_WP5/WP5_data/rds/"
+paper1_MODELS_rds_path<-"~/private_WP5/WP5_data/model_fits/"
+
+# refreshments: 3, 4, 6, 7, 9 and 10
+
+# Nurse Visits: 2,4,6,8,9
+
+#H_elsa_w4_6<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/H_elsa_w4_6.rds")
+#H_elsa_w1<-readRDS("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/H_elsa_w1.rds")
+
+## imputed dataset
+updated_mids<-readRDS(paste0(paper1_rds_path,"mice_updatedMIDS_rev4.rds"))
+
+```
+
+# MAIN EFFECT
+##Predictors list
+
+```{r echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
+
+LTAdata_long <- complete(updated_mids,1)
+
+LTAdata_long<- LTAdata_long %>% mutate(
+                                 ssupport6 = expm1(ssupport6_log1p),
+                                 ssupport6_cat= case_when(
+                                   partner == "No-partner" ~ "No-partner",     # smaller partner support scores = better support
+                                   # "above" in the label only means that partner is as supportive as the median partner or more
+                                   ssupport6 <= 1.5 ~ "above median support",  
+                                   # "below" in the label only means that partner is less supportive thant the median partner
+                                   ssupport6 > 1.5 ~ "below median support",
+                                   TRUE ~ NA_character_
+                                 ) %>% factor(levels = c("No-partner", 
+                                                         "below median support",
+                                                         "above median support"))
+                                 )
+
+
+
+Variables<-c(
+            # ID variable
+               "idauniq",                # integer
+            # TIME variable
+               "time",                   # Integer: 0 = Wave 4
+            # TIME INVARIANT PREDICTORS
+               "raagey_z",               # Age stnd 
+               "Sex_BIN",                # binary: Female, male
+               "raeduc_e",
+            # TIME-VARYING PREDICTORS
+               "wealthQ_bin",           # binary: "Least deprived Qs"; "Most Deprived Q"
+               "MLTC",                   # numeric (count)
+               "cesd_lat_shifted",       # numeric Depression score
+               "loneliness_group",              # binary: "Low, high loneliness"
+               "partner",
+               "ssupport6_cat",          # categorical (no partner, high support, low support)
+            # OUTCOME'S INDICATORS
+               "painchr_ext",            # Integer (ordered)
+               "lvimp_shifted_cat"#,     # Integer (ordered)
+               #"nettotw_bu_s_log"        # numeric
+            )
+
+LTAdata_long<-LTAdata_long %>% select(all_of(Variables))
+
+```
+
+# Partnership quality
+
+## TE DE config
+
+```{r}
+### LTA Formulas
+library(LMest)
+
+
+
+latent_state_vars<-c("lvimp_shifted_cat", #Y1
+                     "painchr_ext"         #Y2
+)
+
+
+# TE_initial_prob_vars
+TE_initial_prob_vars<- c(
+                  "Sex_BIN",
+                  "raeduc_e",
+                  "wealthQ_bin",
+                  "ssupport6_cat",
+                  "MLTC",
+                  "raagey_z"
+                  )
+
+TE_trans_prob_vars<- c(TE_initial_prob_vars)
+
+# DE_initial_prob_vars: 
+DE_vars<-c(TE_initial_prob_vars,"cesd_lat_shifted","loneliness_group")
+
+
+
+###  TE formula
+fmLatent_TE <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                                LatentInitial = TE_initial_prob_vars,
+                                LatentTransition =TE_trans_prob_vars
+)
+
+
+###  DE formula
+fmLatent_DE <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                                LatentInitial = DE_vars,
+                                LatentTransition =DE_vars
+)
+
+
+```
+
+
+
+
+
+```{r}
+
+model_configs <- list(
+     Total_Effects_fit = list(
+       name = "TE",
+       description = "TE model",
+       responsesFormula = fmLatent_TE$responsesFormula,
+       latentFormula = fmLatent_TE$latentFormula
+       ),
+       Direct_Effects_fit = list(
+           name = "DE",
+           description = "DE model",
+           responsesFormula = fmLatent_DE$responsesFormula,
+           latentFormula = fmLatent_DE$latentFormula
+       )
+     )
+
+
+```
+
+```{r}
+
+#run_lmest_parallel_seeds()
+# function defaults
+# data = data, 
+# n_reps = 200, 
+# ntry = 1, 
+# n_cores = 8,
+#                                     
+# modBasic = 1, 
+# start = 1, 
+# maxit = 10000, 
+# k= 4, 
+# tol = 1e-8, 
+# fort = TRUE, 
+# out_SE = FALSE,
+# base_seed = 200720, 
+# plot_hist = TRUE,
+# exclude_deterministic = TRUE) 
+
+```
+# Run Total Effects
+```{R}
+TE_results_parallel_output <- run_lmest_parallel_seeds(
+  config = model_configs[[1]],
+  data = LTAdata_long,
+  n_reps = 50,      
+  ntry = 5, # random starts are k * ntry
+  n_cores = 10      
+)
+
+TE_results_parallel_output$plot
+TotalEffects<-TE_results_parallel_output$best_model
+
+timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+saveRDS(TotalEffects,paste0(paper1_MODELS_rds_path,"TotalEffects_",timestamp_suffix,".rds"))
+saveRDS(TotalEffects,paste0(paper1_MODELS_rds_path,"TotalEffects.rds"))
+
+saveRDS(TE_results_parallel_output,paste0(paper1_MODELS_rds_path,"TE_results_parallel_output_",timestamp_suffix,".rds"))
+saveRDS(TE_results_parallel_output,paste0(paper1_MODELS_rds_path,"TE_results_parallel_output.rds"))
+
+
+```
+
+
+# Run Direct Effects
+```{R}
+DE_results_parallel_output <- run_lmest_parallel_seeds(
+  config = model_configs[[2]],
+  data = LTAdata_long,
+  n_reps = 50,      
+  ntry = 5,
+  n_cores = 10      
+)
+
+DirectEffects<-DE_results_parallel_output$best_model
+
+timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+saveRDS(DirectEffects,paste0(paper1_MODELS_rds_path,"DirectEffects_",timestamp_suffix,".rds"))
+saveRDS(DirectEffects,paste0(paper1_MODELS_rds_path,"DirectEffects.rds"))
+
+saveRDS(DE_results_parallel_output,paste0(paper1_MODELS_rds_path,"DE_results_parallel_output_",timestamp_suffix,".rds"))
+saveRDS(DE_results_parallel_output,paste0(paper1_MODELS_rds_path,"DE_results_parallel_output.rds"))
+
+
+```
+
+
+# Partnership binary
+
+
+
+
+
+# TE DE noExp config
+```{r}
+################################################################################
+##################### REDUCED MODELS excluding the exposure
+################################################################################
+fmLatent_TE_noExpBlock_init <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                          LatentInitial =  TE_initial_prob_vars %>%
+                            setdiff(c("ssupport6_cat")),
+                          LatentTransition =TE_trans_prob_vars # we keep transition formula unchanged so that this model is nested in the previous.
+                         )
+
+fmLatent_TE_noExpBlock_trans <- lmestFormula(data = LTAdata_long, response = latent_state_vars, 
+                          LatentInitial =  TE_initial_prob_vars, # we keep Initial prob formula unchanged so that this model is nested in the previous. 
+                          LatentTransition =TE_trans_prob_vars %>%
+                            setdiff(c("ssupport6_cat"))
+                         )
+model_configs_noEXP <- list(
+     NO_Effects_init_fit = list(
+       name = "TE-noEXPinit",
+       description = "TE-noEXP init model",
+       responsesFormula = fmLatent_TE_noExpBlock_init$responsesFormula,
+       latentFormula = fmLatent_TE_noExpBlock_init$latentFormula
+       ),
+       NO_Effects_trans_fit = list(
+           name = "TE-noEXPtrans",
+           description = "TE-noEXP trans model",
+           responsesFormula = fmLatent_TE_noExpBlock_trans$responsesFormula,
+           latentFormula = fmLatent_TE_noExpBlock_trans$latentFormula
+       )
+     )
+
+TE_init_noEXP_results_parallel_output <- run_lmest_parallel_seeds(
+  config = model_configs_noEXP[[1]],
+  data = LTAdata_long,
+  n_reps = 20,      
+  ntry = 5, # random starts are k * ntry
+  n_cores = 10      
+)
+
+
+TE_init_noEXP_results_parallel_output$plot
+TotalEffects_init_noEXP<-TE_init_noEXP_results_parallel_output$best_model
+
+timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+saveRDS(TotalEffects_init_noEXP,paste0(paper1_MODELS_rds_path,"TotalEffects_init_noEXP_",timestamp_suffix,".rds"))
+saveRDS(TotalEffects_init_noEXP,paste0(paper1_MODELS_rds_path,"TotalEffects_init_noEXP.rds"))
+
+saveRDS(TE_init_noEXP_results_parallel_output,paste0(paper1_MODELS_rds_path,"TE_init_noEXP_results_parallel_output_",timestamp_suffix,".rds"))
+saveRDS(TE_init_noEXP_results_parallel_output,paste0(paper1_MODELS_rds_path,"TE_init_noEXP_results_parallel_output.rds"))
+
+
+
+TE_trans_noEXP_results_parallel_output <- run_lmest_parallel_seeds(
+  config = model_configs_noEXP[[2]],
+  data = LTAdata_long,
+  n_reps = 20,      
+  ntry = 5, # random starts are k * ntry
+  n_cores = 10      
+)
+
+TE_trans_noEXP_results_parallel_output$plot
+TotalEffects_trans_noEXP<-TE_trans_noEXP_results_parallel_output$best_model
+
+timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+saveRDS(TotalEffects_trans_noEXP,paste0(paper1_MODELS_rds_path,"TotalEffects_trans_noEXP_",timestamp_suffix,".rds"))
+saveRDS(TotalEffects_trans_noEXP,paste0(paper1_MODELS_rds_path,"TotalEffects_trans_noEXP.rds"))
+
+saveRDS(TE_trans_noEXP_results_parallel_output,paste0(paper1_MODELS_rds_path,"TE_trans_noEXP_results_parallel_output_",timestamp_suffix,".rds"))
+saveRDS(TE_trans_noEXP_results_parallel_output,paste0(paper1_MODELS_rds_path,"TE_trans_noEXP_results_parallel_output.rds"))
+```
+
+
+
+```{r}
+TE_DE_parallel_output_noEXP <- run_LMEST_models_parallel(model_configs = model_configs_noEXP, 
+                                               log_path = paste0(paper1_MODELS_rds_path,"logs/"), # remember to create this directory
+                                               save_path = paper1_MODELS_rds_path, 
+                                               data = LTAdata_long,
+                                               modBasic = 1,
+                                               paramLatent = "multilogit",
+                                               maxit = 10000,
+                                               start = 1,
+                                               fort = T,
+                                               ntry = 50, # total random start iterations is k * ntry + 1 deterministic 
+                                               k = 4,
+                                               tol = 1e-8,
+                                               stability_tol = 5, # this is to compare the differences in ll between random tries, check the output to see if needs adjusting
+                                               n_cores = 4, # max number of cores to use (lmest can only run one lmest command X core)
+
+                                               save_models = TRUE)
+
+
+
+timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
+saveRDS(TE_DE_parallel_output_noEXP,paste0(paper1_MODELS_rds_path,"TE_DE_noExp_model_parallel_output_",timestamp_suffix,".rds"))
+saveRDS(TE_DE_parallel_output_noEXP,paste0(paper1_MODELS_rds_path,"TE_DE_noExp_model_parallel_output.rds"))
+
+```

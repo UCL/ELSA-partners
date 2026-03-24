@@ -23,14 +23,13 @@ library(patchwork)
 library(corrplot)
 library(GGally)
 
-#source("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/Sources/Paper1_func.R")
-source("Sources/Paper1_func.R")
+source("~/ELSA-partners/Sources/Paper1_func.R")
 
 ```
 
 ```{r eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 #paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
-paper1_rds_path<-"~/private/WP5_data/rds/"
+paper1_rds_path<-"~/private_WP5/WP5_data/rds/"
 
 # refreshments: 3, 4, 6, 7, 9 and 10
 
@@ -1405,16 +1404,18 @@ table(painLoc_data$r4pain_locN_cat,painLoc_data$r4painchr)
 
 The bivariate association fails the test for bivariate normality. This
 means that the correlation detected is a linear approximation of the
-underlying relationship between the two variables
+underlying relationship between the two variables. Polychoric correlation
+is robust to moderate normality violations; this result is exploratory
+and not used in primary LTA modelling.
 
-### Compoasite Chronic pain state
+### Composite Chronic pain state
 
 0 NO PAIN 1 ACUTE PAIN 3 CHRONIC 4 CHRONIC WIDESPREAD
 
 ```{r}
 NA_count_pain<-is.na(H_elsa_w4_6$r4painchr_ext) %>% sum    
 NA_perc_pain<-NA_count_pain/nrow(H_elsa_w4_6) * 100               
-#NA_perc_pain_orig<-(is.na(H_elsa_w4_6$r4painchr) %>% sum)/nrow(H_elsa_w4_6) * 100               
+# r4painchr_ext extends r4painchr by splitting chronic pain (class 2) into localised vs widespread (3+ locations)
 
 ggplot(H_elsa_w4_6, aes(x = r4painchr_ext, 
                        fill = factor(ragender, 
@@ -1460,7 +1461,7 @@ var_Covs<-c("r4agey","r4agey_cat",
               "raeduc_e","r4work",
               "r4smoken","r4drinkwn_e","r4lnlys","r4mbmi","r4MLTC")
 
-# Prepare data
+# Prepare data — note: r4MLTC_cat is created inside prepare_table1_data() from r4MLTC (see Paper1_func.R)
 table1_data <- prepare_table1_data(H_elsa_w4_6, var_Ys, var_Xs, var_Covs)
 
 # Create the table

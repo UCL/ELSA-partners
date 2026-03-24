@@ -24,15 +24,13 @@ library(patchwork)
 library(corrplot)
 library(GGally)
 
-#source("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/Sources/Paper1_func.R")
-source("Sources/Paper1_func.R")
+source("~/ELSA-partners/Sources/Paper1_func.R")
 
-#paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
-paper1_rds_path<-"~/private/WP5_data/rds/"
+paper1_rds_path<-"~/private_WP5/WP5_data/rds/"
 
 H_elsa_w4_6<-readRDS(paste0(paper1_rds_path,"H_elsa_w4_6.rds"))
 
-paper1_MODELS_rds_path<-"~/private/WP5_data/model_fits/"
+paper1_MODELS_rds_path<-"~/private_WP5/WP5_data/model_fits/"
 # refreshments: 3, 4, 6, 7, 9 and 10
 
 # Nurse Visits: 2,4,6,8,9
@@ -103,12 +101,11 @@ Missingdata_wide <- H_elsa_w4_6 %>%
            "raeduc_e",                       # Education                        (categorical); incomp
            paste0("r",c(4:6),"smoken"),      # smoking                          (binary); incomp
            paste0("r",4:6,"work"),           # Working status                   (binary); incomp
-           paste0("r",4:6,"drinkwn_e"),      # Drinking                         (binary); incomp
+           paste0("r",4:6,"drinkwn_e"),      # Drinking (weekly units)          (continuous); incomp
 #           paste0("r",c(4,6),"mbmi"),        # BMI                              (numeric); incomp
 #           paste0("r",c(4,6),"hscrp"),       # CRP                              (numeric); incomp
            paste0("r",4:6,"PA_cat"),         # Physical activity                (categorical); incomp
            paste0("r",4:6,"cesd_lat"),       # Depression latent score          (numeric, skewed); incomp
-           paste0("r",4:6,"ssupport6"),      # Marital strain score             (numeric, skewed) incomplete;
            paste0("r",4:6,"MLTC")            # Multiple long-term condit. count (numeric/count, skewed); incomp
   ))
 
@@ -183,9 +180,9 @@ Missingdata_wide<- Missingdata_wide %>%
 #Missingdata_wide$r4drinkwn_e %>% log() %>% hist(breaks = seq(-1,2,0.1))
 Missingdata_wide <- Missingdata_wide %>%
   mutate(
-    r4drinkwn_e_log  = log(r4drinkwn_e),
-    r5drinkwn_e_log  = log(r5drinkwn_e),
-    r6drinkwn_e_log  = log(r6drinkwn_e)
+    r4drinkwn_e_log  = log1p(r4drinkwn_e),
+    r5drinkwn_e_log  = log1p(r5drinkwn_e),
+    r6drinkwn_e_log  = log1p(r6drinkwn_e)
   )
 Missingdata_wide<- Missingdata_wide %>%
   select(-r4drinkwn_e,-r5drinkwn_e,-r6drinkwn_e)
@@ -238,21 +235,6 @@ ord.vars<-c(paste0("r",4:6,"PA_cat"),          # Physical Activity              
             paste0("r",4:6,"painchr_ext")
             )        
 
-cont.vars<-c(#paste0("r",4:6,"agey"),            # age                            (continuous); incomp
-            "raagey",                          # age  (bl only)                   (continuous); incomp
-             paste0("r",4:6,"shlt"),           # self-reported health             (cat-ordinal); incomp
-             paste0("r",4:6,"drinkwn_e_log"),# units/week (bl only)             (continuous); incomp
-             paste0("r",4:6,"lvimp_shifted"),  # units/week (bl only)             (continuous); incomp
-             paste0("r",4:6,"nettotw_bu_s_log"),# net wealth (bl only)            (continuous); incomp
-             paste0("r",4:6,"MLTC"),           # N. MLTC (bl only)                (cat-ordinal); incomp
-             paste0("r",4:6,"lnlys"),          # Lonelyness
-#             paste0("r",c(4,6),"mbmi"),        # MBMI                             (continuous); incomp
-#             paste0("r",c(4,6),"hscrp"),       # CRP                              (continuous); incomp
-             paste0("r",4:6,"adltot6"),        # count of 6 ADL items             (continuous); incomp
-             paste0("r",4:6,"painlv"),         # Pain level (0-3)                 (continuous); incomp
-             paste0("r",4:6,"ssupport6_log1p"),      # Marital strain                   (continuous); incomp 
-             paste0("r",4:6,"cesd_lat_shifted")        # cesd                             (continuous); incomp 
-            )
 
 Missingdata_wide<-Missingdata_wide %>% mutate(
                                 ragender = case_when(
@@ -316,6 +298,8 @@ for(var in minimal_missing) {
 
 
 # Use r6smoken to fill missing values in earlier waves
+# Assumption: smoking status is treated as time-stable (ever-smoker); wave 6 is used as
+# a last-observation carry-back. This is applied outside MICE and does not propagate uncertainty.
 Missingdata_wide <- Missingdata_wide %>%
   mutate(
     # Fill r4smoken missing values with r6smoken
@@ -382,7 +366,7 @@ Missingdata_long  %>% vis_miss()
 |smoken            |Binary                    |Time-varying    |4, 5, 6          |Variable |
 |work              |Binary                    |Time-varying    |4, 5, 6          |Variable |
 |PA_cat            |Ordinal (4 levels)        |Time-varying    |4, 5, 6          |Variable |
-|cesd_lat          |Continuous                |Time-varying    |4, 5, 6          |Variable |
+|cesd_lat_shifted  |Continuous (shifted)      |Time-varying    |4, 5, 6          |Variable |
 |MLTC              |Count/Continuous          |Time-varying    |4, 5, 6          |Variable |
 |nettotw_bu_s_log  |Continuous (log-trans.)   |Time-varying    |4, 5, 6          |Variable |
 |lvimp_shifted     |Continuous (shifted)      |Time-varying    |4, 5, 6          |Variable |
@@ -405,7 +389,9 @@ Missingdata_long  %>% vis_miss()
 bin_TimeVar.long <- c("work","smoken","partner")
 
 # Continuous time-varying
-cont_TimeVar.long <- c("painlv","shlt","drinkwn_e_log","nettotw_bu_s_log",
+cont_TimeVar.long <- c("painlv",        # ordinal pain severity (5 levels) treated as continuous integer for 2l.pmm; PMM draws from observed values ensuring valid imputed integers
+                       "shlt",          # ordinal self-reported health (5 levels) treated as continuous integer for 2l.pmm; same rationale as painlv
+                       "drinkwn_e_log","nettotw_bu_s_log",
                        "ssupport6_log1p","lvimp_shifted","cesd_lat_shifted",
                        "lnlys",
                        # the following are integer ordinal/count variables, we re ordered but treating as integer here to facilitate mice predictions
@@ -507,15 +493,22 @@ missingness_by_var <- Missingdata_long %>%
 
 print(missingness_by_var)
 
-# Use the maximum missingness rate
-max_missing <- max(missingness_by_var$pct_missing)
-m_imputations <- ceiling(max_missing)
 
+# Variables that enter the LTA model (analytic set only)
+lta_vars <- c("idauniq", "wave", "raagey", "ragender", "raeduc_e",
+              "nettotw_bu_s_log", "MLTC", "cesd_lat_shifted", "lnlys",
+              "partner", "ssupport6_log1p", "painchr_ext", "lvimp_shifted")
+
+# % of rows with at least one missing on any analytic variable
+analytic_vars_present <- intersect(lta_vars, names(Missingdata_long))
+pct_incomplete <- mean(!complete.cases(Missingdata_long[, analytic_vars_present])) * 100
+
+m_imputations <- ceiling(pct_incomplete)
 print(paste("Number of imputations:", m_imputations))
+```
 
 
-
-
+```{r}
 library(mice)
 library(miceadds)
 library(micemd)
@@ -578,16 +571,13 @@ pred[, "idauniq"] <- -2  # Cluster grouping variable
 # Prevent painchr_ext from predicting painlv
 pred["painchr_ext", "painlv"] <- 0  
 pred["painlv", "painchr_ext"] <- 0  
-# we do not use partner as predictor of spouse support because it is conditional on partner:
-# we do not want to impute ssupport when it should be NA
-pred["ssupport6_log1p", "partner"] <- 0
-
-
 ## this was added after I noticed that pmm struggled (numerical instability) with conditional variables as predictors given that these have systematic missingness
 conditional_vars <- c("ssupport6_log1p")
 pred[, conditional_vars] <- 0
 
-
+# Exclude partner as predictor OF ssupport6_log1p: the where_matrix restricts imputation to                                                                                
+# partner==1 rows only, making partner constant within the imputed subset — singular predictor                                                                             
+pred["ssupport6_log1p", "partner"] <- 0                                                                                                                                    
 
 
 #pred[ord_TimeVar.long, ] <- 0
@@ -627,14 +617,22 @@ where_matrix[Missingdata_long$partner == 0 & is.na(Missingdata_long$ssupport6_lo
 
 set.seed(200720)
 imp_1 = mice(data = Missingdata_long, 
-            m = 12, 
+            m = m_imputations, 
             predictorMatrix = pred, 
             method = meth1, 
             where = where_matrix,
             diagnostics = TRUE,
             printFlag = TRUE,
-            maxit = 10)
-saveRDS(imp_1, paste0(paper1_rds_path,"mice_imputationlong_rev4.rds"))
+            maxit = 10) 
+imp_test = mice(data = Missingdata_long, 
+            m = 3, 
+            predictorMatrix = pred, 
+            method = meth1, 
+            where = where_matrix,
+            diagnostics = TRUE,
+            printFlag = TRUE,
+            maxit = 5) 
+#saveRDS(imp_1, paste0(paper1_rds_path,"mice_imputationlong_rev4.rds"))
 
 ```
 
@@ -654,5 +652,43 @@ Missingdata_long %>% vis_miss()
 imputed_result %>% vis_miss()
 # wave 4 ssupport missingness
 imputed_result %>% filter(partner == 1) %>% select(ssupport6_log1p) %>% vis_miss
+
+## ── Post-imputation diagnostics ─────────────────────────────────────────────
+
+# 1. FMI (Fraction of Missing Information) per analytic variable
+# White et al. 2011: FMI > 0.5 suggests m may be inadequate
+lta_vars <- c("idauniq","time","raagey_z","Sex_BIN","raeduc_e","wealthQ_bin",
+              "MLTC","cesd_lat_shifted","loneliness_group","partner",
+              "painchr_ext","lvimp_shifted_cat")
+
+analytic_in_mids <- intersect(lta_vars, names(imp_1$data))
+
+if (length(analytic_in_mids) > 0) {
+  # Fit a null model (intercept only) per variable to extract FMI
+  fmi_list <- lapply(analytic_in_mids, function(v) {
+    tryCatch({
+      fit <- with(imp_1, lm(as.formula(paste(v, "~ 1"))))
+      pooled <- pool(fit)
+      data.frame(variable = v,
+                 fmi = mean(pooled$pooled$fmi, na.rm = TRUE))
+    }, error = function(e) data.frame(variable = v, fmi = NA_real_))
+  })
+  fmi_df <- do.call(rbind, fmi_list)
+  print(fmi_df[order(fmi_df$fmi, decreasing = TRUE), ])
+  if (any(fmi_df$fmi > 0.5, na.rm = TRUE))
+    warning("FMI > 0.5 for: ", paste(fmi_df$variable[fmi_df$fmi > 0.5], collapse = ", "),
+            " — consider increasing m")
+}
+
+# 2. Density plots: observed vs imputed distributions for continuous variables
+densityplot(imp_1, ~ painlv + shlt + lnlys + cesd_lat_shifted + lvimp_shifted,
+            main = "Observed (blue) vs Imputed (red) — continuous vars")
+
+densityplot(imp_1, ~ nettotw_bu_s_log + ssupport6_log1p + drinkwn_e_log,
+            main = "Observed (blue) vs Imputed (red) — log-transformed vars")
+
+# 3. Strip plots: plausibility check for key continuous variables
+stripplot(imp_1, painlv + shlt + lnlys + cesd_lat_shifted ~ .imp,
+          main = "Strip plots — imputed values should overlap observed range")
 ```
 
