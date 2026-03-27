@@ -165,17 +165,17 @@ imputed.df123 %>% select(lvimp_shifted_cat) %>% table
 We wave 4 quantile breaks calculated from one reference dataset to ensure consistent categorization across all imputations
 ```{r, eval=T, echo=FALSE}
 # Calculate wave 4 quintile breaks from complete case or first imputation
-data_long <- complete(updated_mids, 1)
+data_imp1 <- complete(updated_mids, 1)
 
 global_min <- -436410
 
-data_long$nettotw_bu_s_original<- exp(data_long$nettotw_bu_s_log) + global_min - 1
-cutpoints <- quantile(data_long$nettotw_bu_s_original, 
-                     probs = seq(0, 1, 0.2), 
+data_imp1$nettotw_bu_s_original<- exp(data_imp1$nettotw_bu_s_log) + global_min - 1
+cutpoints <- quantile(data_imp1$nettotw_bu_s_original,
+                     probs = seq(0, 1, 0.2),
                      na.rm = TRUE)
 print(cutpoints)
 
-quintile_breaks_log <- quantile(data_long$nettotw_bu_s_log, # pooled quintile repartition
+quintile_breaks_log <- quantile(data_imp1$nettotw_bu_s_log, # pooled quintile repartition
                                   probs = seq(0, 1, by = 0.2), na.rm = TRUE)
 
 
@@ -201,10 +201,10 @@ the total score here is log1p() transformed to improve its skewed distribution. 
 ### Lonelyness bin
 
 ```{r}
-data_long <- complete(updated_mids, 1)
-data_w4<-data_long%>% filter(wave == 4)
-data_w5<-data_long%>% filter(wave == 5)
-data_w6<-data_long%>% filter(wave == 6)
+data_imp1 <- complete(updated_mids, 1)
+data_w4<-data_imp1%>% filter(wave == 4)
+data_w5<-data_imp1%>% filter(wave == 5)
+data_w6<-data_imp1%>% filter(wave == 6)
 
 
 cluster_wave <- function(data, wave_num, n_clusters){
