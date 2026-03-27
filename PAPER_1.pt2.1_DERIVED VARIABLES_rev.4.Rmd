@@ -240,7 +240,8 @@ cluster_wave <- function(data, wave_num, n_clusters){
   ))
 }
 
-# Run clustering for each wave
+# n_clusters = 2: frozen value confirmed by PAM bootstrap stored in
+# Impact_clustStability_boot2000.rds (eval=FALSE chunk, lines 69–129)
 results_w4 <- cluster_wave(data_w4, n_clusters = 2, wave_num = 4)
 results_w5 <- cluster_wave(data_w5, n_clusters = 2, wave_num = 5)
 results_w6 <- cluster_wave(data_w6, n_clusters = 2, wave_num = 6)
@@ -283,7 +284,14 @@ apply_loneliness_clustering <- function(mids_object, ref_medoids = c(1.00, 1.75)
 }
 
 # Apply to your mids object
-# ref_medoids c(1.00, 1.75) validated as stable across waves 4–6 (see results_w4/5/6 above)
+# ref_medoids c(1.00, 1.75) are hardcoded as the reference clustering centres.
+# Validated as stable across all three waves via PAM (cluster_wave()):
+#   Wave 4: medoids = 1.00, 1.75 | sizes = 3777, 4237 | avg silhouette = 0.605
+#   Wave 5: medoids = 1.00, 1.75 | sizes = 4204, 3810 | avg silhouette = 0.613
+#   Wave 6: medoids = 1.00, 1.75 | sizes = 3845, 4169 | avg silhouette = 0.616
+# Silhouette widths >0.60 indicate well-separated clusters. Wave 5 label order
+# is reversed in raw output (1.75 first) but medoid values are identical.
+# Wave 4 medoids are used as the cross-wave reference (most common convention).
 updated_mids <- apply_loneliness_clustering(updated_mids, ref_medoids = c(1.00, 1.75))
 
 
