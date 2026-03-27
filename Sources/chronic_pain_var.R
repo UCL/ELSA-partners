@@ -1,3 +1,30 @@
+################################################################################
+# chronic_pain_var.R
+#
+# PURPOSE: Diagnostic classifier used EXCLUSIVELY in the IRT measurement
+#          invariance pipeline (Measurement_invariance_IRT.Rmd).
+#
+# THIS IS NOT the chronic pain classifier used in the main analysis.
+# The analysis classifier is `painchr_ext`, derived in:
+#   PAPER_1.pt1_Data_prep.Rmd (lines ~726–760)
+# using `create_pain_locations_count()` from Sources/Paper1_func.R.
+# `painchr_ext` is a 4-category extended classifier (No pain / Acute /
+# Chronic / Chronic widespread 3+ locations).
+#
+# ROLE IN MEASUREMENT INVARIANCE:
+# `create_chrpain_variable()` produces a binary chronic pain flag (rXchrpain)
+# across ELSA waves 1–9 using a two-consecutive-wave criterion. This flag is
+# used to stratify participants into chronic vs. non-chronic pain groups so
+# that the 2PL IRT model of pain impact items can be tested for measurement
+# invariance across these groups and across waves. The goal is to verify that
+# the IRT-derived pain impact scores (impactEstimates2-8_partialScalar.rds)
+# are on a common metric — i.e. that the items measure the same construct
+# regardless of chronic pain status or wave.
+#
+# The `chronic_pain_var()` function (3-category single-wave classifier below)
+# is defined here but is NOT called by Measurement_invariance_IRT.Rmd.
+################################################################################
+
 # Define a function to create the chrpain variables for a specific wave
 create_chrpain_variable <- function(data, wave) {
   if(wave == 1){
