@@ -23,6 +23,8 @@ library(polycor)
 library(patchwork)
 library(corrplot)
 library(GGally)
+library(lme4)
+library(broom.mixed)
 
 source("~/ELSA-partners/Sources/Paper1_func.R")
 
@@ -499,7 +501,9 @@ lta_vars <- c("idauniq", "wave", "raagey", "ragender", "raeduc_e",
               "nettotw_bu_s_log", "MLTC", "cesd_lat_shifted", "lnlys",
               "partner", "ssupport6_log1p", "painchr_ext", "lvimp_shifted")
 
-# % of rows with at least one missing on any analytic variable
+# Number of imputations set to the percentage of incomplete cases (rows with at
+# least one missing value on any analytic variable). Rule: m >= % incomplete cases
+# [@white2011multiple].
 analytic_vars_present <- intersect(lta_vars, names(Missingdata_long))
 pct_incomplete <- mean(!complete.cases(Missingdata_long[, analytic_vars_present])) * 100
 
@@ -512,6 +516,8 @@ print(paste("Number of imputations:", m_imputations))
 library(mice)
 library(miceadds)
 library(micemd)
+library(lme4)       # lmer() for FMI proxy models (longitudinal structure)
+library(broom.mixed) # pool() support for lmer objects
 # Define imputation methods
 meth1 <- make.method(Missingdata_long)
 
@@ -547,8 +553,10 @@ pred <- make.predictorMatrix(Missingdata_long)
 #pred["predicted","predictor"]
 pred[,c("idauniq")] <- 0
 
-# time-fixed variable should not be imputed using time
-# all time fixed variables are complete in this case
+# time-fixed variables should not be imputed using wave as a predictor —
+# wave has no meaning for variables that do not vary within person.
+# note: raeduc_e is incomplete and is imputed with 2lonly.pmm (see below);
+# ragender and raagey are complete and do not require imputation.
 pred[lv2_vars, c("wave")] <- 0
 
 # Specify alias as cluster variable
@@ -613,32 +621,185 @@ where_matrix[Missingdata_long$partner == 0 & is.na(Missingdata_long$ssupport6_lo
 
 ```
 
-```{r, eval=FALSE}
+We determined the number of imputations using the two-stage quadratic procedure recommended by von Hippel (2020). 
+
+In stage 1, we ran a pilot analysis with M = 20 imputations and estimated the fraction of missing information (γ_mis) using mixed-effects proxy regression on three key variables: both LTA outcome indicators (`painchr_ext` and `lvimp_shifted`) and the primary exposure variable (`ssupport6_log1p`). Because LMest is not compatible with the `mice` pooling interface, proxy regression approximates analysis-level FMI substantially better than intercept-only marginal models. Because the imputed data are in long format with three repeated observations per person, we used `lmer()` with a random intercept per individual rather than OLS, which would treat repeated observations as independent and understate standard errors. Each outcome indicator was regressed on the fixed-effect LTA predictor set across the full dataset; `ssupport6_log1p` was assessed in the partnered subsample only, since by design it is not imputed for unpartnered participants. To be conservative, we used the upper bound of the 95% confidence interval for γ_mis on the logit scale [@harel2007inferences] when calculating the required M for stage 2. The number of imputations was selected to achieve a coefficient of variation of SE ≤ 0.05 (equivalent to ≥ 200 effective degrees of freedom), ensuring that SE estimates would not change materially if the data were re-imputed [@vonhippel2020many]. The worst-case γ_mis across all coefficients and all three proxy models determined M.
+
+The final M used in stage 2 is reported in the diagnostic output below.
+
+```{r imputation-stage1, eval=FALSE}
+# ── Stage 1: Pilot imputation (von Hippel 2018) ──────────────────────────────
+# Run m=20 pilot, extract FMI via OLS proxy regression on both LTA outcome
+# indicators, compute 95% CI upper bound on logit scale (Harel 2007), apply
+# quadratic rule to identify the worst-case parameter and recommend M for stage 2.
+
+# Quick sanity check (3 imputations, 5 iterations) — run before the pilot
+imp_test <- mice(data = Missingdata_long,
+                 m = 3,
+                 predictorMatrix = pred,
+                 method = meth1,
+                 where = where_matrix,
+                 diagnostics = TRUE,
+                 printFlag = TRUE,
+                 maxit = 5)
+
+# Pilot imputation — von Hippel (2018)
+set.seed(200720)
+imp_pilot <- mice(data = Missingdata_long,
+                  m = 20,                  # von Hippel (2018): pilot m=20
+                  predictorMatrix = pred,
+                  method = meth1,
+                  where = where_matrix,
+                  diagnostics = TRUE,
+                  printFlag = TRUE,
+                  maxit = 20) # 5–20 iterations sufficient [@vanbuuren2018flexible]
+```
+
+
+```{r}
+# Helper functions — von Hippel (2018) / Harel (2007)
+logit     <- function(p) log(p / (1 - p))                          # von Hippel (2018)
+inv_logit <- function(x) exp(x) / (1 + exp(x))                     # von Hippel (2018)
+
+ci_upper_fmi <- function(gamma_hat, M) {                            # Harel (2007)
+  se_logit    <- sqrt(2 / M)
+  upper_logit <- logit(gamma_hat) + 1.96 * se_logit
+  inv_logit(upper_logit)
+}
+
+recommended_M <- function(gamma_upper, CV_target = 0.05) {         # von Hippel (2018)
+  ceiling(1 + 0.5 * (gamma_upper / CV_target)^2)                   # CV_target=0.05 ↔ df=200
+}
+
+# ── FMI extraction via lmer proxy models ─────────────────────────────────────
+# LMest is not mice-compatible so OLS/lmer proxies are used to approximate
+# analysis-level FMI. The data are in long format (3 waves per person), so
+# plain lm() would treat repeated observations as independent — understating
+# SEs and deflating FMI. lmer() with a random intercept per person is the
+# appropriate proxy for this data structure.
+#
+# Three proxy models:
+#   (1) painchr_ext    ~ fixed predictors + (1|idauniq) — full dataset
+#   (2) lvimp_shifted  ~ fixed predictors + (1|idauniq) — full dataset
+#   (3) ssupport6_log1p ~ fixed predictors + (1|idauniq) — partner==1 subset
+#       ssupport6_log1p is one of the most-imputed variables. It is not
+#       imputed for partner=0 cases by design (where_matrix), so those rows
+#       retain NA in complete() datasets. Restricting to partner==1 gives the
+#       imputed values; partner is dropped from predictors (no variation).
+#
+# pool() accepts a plain list of fitted models and works with lmer via broom.mixed.
+
+# Fixed predictors shared by outcomes (1) and (2)
+proxy_pred_outcomes <- "partner + cesd_lat_shifted + MLTC +
+                        lnlys + 
+                        nettotw_bu_s_log + raagey + ragender + raeduc_e + wave +
+                        (1 | idauniq)"
+
+proxy_pred_outcomes_ss <- "ssupport6_log1p + cesd_lat_shifted + MLTC +
+                        lnlys + 
+                        nettotw_bu_s_log + raagey + ragender + raeduc_e + wave +
+                        (1 | idauniq)"
+
+# Fixed predictors for ssupport6 — partner==1 subset, partner omitted
+proxy_pred_ss <- "cesd_lat_shifted + MLTC +
+                  lnlys + 
+                  nettotw_bu_s_log + raagey + ragender + raeduc_e + wave +
+                  (1 | idauniq)"
+
+extract_fmi_lmer <- function(mids_obj, outcome, predictors, M,
+                              subset_expr = NULL) {
+  tryCatch({
+    fml  <- as.formula(paste(outcome, "~", predictors))
+    fits <- lapply(seq_len(M), function(i) {
+      dat <- mice::complete(mids_obj, i)   # tidyr::complete() masks mice::complete()
+      if (!is.null(subset_expr)) dat <- dat[eval(subset_expr, dat), ]
+      lmer(fml, data = dat, REML = FALSE)
+    })
+    pooled <- mice::pool(fits)
+    params <- pooled$pooled
+    data.frame(
+      outcome     = outcome,
+      parameter   = params$term,
+      gamma_hat   = params$fmi,
+      gamma_upper = ci_upper_fmi(params$fmi, M = M),     # Harel (2007)
+      stringsAsFactors = FALSE
+    )
+  }, error = function(e) {
+    warning("Proxy model failed for outcome: ", outcome, " — ", conditionMessage(e))
+    data.frame(outcome = outcome, parameter = NA_character_,
+               gamma_hat = NA_real_, gamma_upper = NA_real_)
+  })
+}
+
+fmi_painchr  <- extract_fmi_lmer(imp_pilot, "painchr_ext",     proxy_pred_outcomes, M = 20)
+fmi_lvimp    <- extract_fmi_lmer(imp_pilot, "lvimp_shifted",   proxy_pred_outcomes, M = 20)
+fmi_painchr_ss  <- extract_fmi_lmer(imp_pilot, "painchr_ext",     proxy_pred_outcomes_ss, M = 20, subset_expr = quote(partner == 1))
+fmi_lvimp_ss    <- extract_fmi_lmer(imp_pilot, "lvimp_shifted",   proxy_pred_outcomes_ss, M = 20, subset_expr = quote(partner == 1))
+
+
+fmi_ssupport <- extract_fmi_lmer(imp_pilot, "ssupport6_log1p", proxy_pred_ss,       M = 20,
+                                  subset_expr = quote(partner == 1))
+
+# Combine across all proxy models and apply quadratic rule
+fmi_pilot <- rbind(fmi_painchr, fmi_lvimp, 
+                   fmi_painchr_ss, fmi_lvimp_ss, 
+                   fmi_ssupport)
+fmi_pilot$M_recommended <- recommended_M(fmi_pilot$gamma_upper)  # von Hippel (2018)
+
+worst <- fmi_pilot %>%
+  filter(!parameter %in% c("lnlys", "wave")) %>%
+  slice_max(gamma_upper, n = 1)
+
+cat("=== Stage 1 Imputation Diagnostics (von Hippel 2018) ===\n")
+cat("Pilot imputations : 20\n")
+cat("Proxy models      : lmer() with random intercept per person (REML=FALSE)\n")
+cat("  (1) painchr_ext      ~ fixed LTA predictors + (1|idauniq)\n")
+cat("  (2) lvimp_shifted    ~ fixed LTA predictors + (1|idauniq)\n")
+cat("  (3) ssupport6_log1p  ~ predictors + (1|idauniq) [partner==1 subset]\n\n")
+
+cat(sprintf("Worst-case parameter : %s ~ %s\n", worst$outcome, worst$parameter))
+cat(sprintf("  gamma_hat          : %.3f\n", worst$gamma_hat))
+cat(sprintf("  95%% CI upper       : %.3f\n", worst$gamma_upper))
+cat(sprintf("  Recommended M      : %d\n\n", worst$M_recommended))
+
+cat("All parameters (ordered by gamma_upper):\n")
+fmi_pilot %>%
+  arrange(desc(gamma_upper)) %>%
+  print()
+
+cat("\n Conclusion: 'imputation-stage2' only if M_recomended is greater than stage 2.\n")
+cat(ifelse(
+  worst$M_recommended <= 20,
+  "M_recommended <= 20 — pilot imputations are sufficient.\n",
+  "M_recommended > 20  — proceed with stage 2 imputations.\n"
+))
+```
+
+```{r imputation-stage2, eval=FALSE}
+# ── Stage 2: Final imputation (von Hippel 2018) ───────────────────────────────
+# M set by quadratic rule applied to worst-case gamma_mis upper CI bound from
+# Stage 1. See chunk 'imputation-stage1' for diagnostics.
+
+if (!exists("M_recommended") || is.na(M_recommended)) {
+  stop("M_recommended not found — run chunk 'imputation-stage1' first.")
+}
 
 set.seed(200720)
-imp_1 = mice(data = Missingdata_long, 
-            m = m_imputations, 
-            predictorMatrix = pred, 
-            method = meth1, 
-            where = where_matrix,
-            diagnostics = TRUE,
-            printFlag = TRUE,
-            maxit = 10) 
-imp_test = mice(data = Missingdata_long, 
-            m = 3, 
-            predictorMatrix = pred, 
-            method = meth1, 
-            where = where_matrix,
-            diagnostics = TRUE,
-            printFlag = TRUE,
-            maxit = 5) 
-#saveRDS(imp_1, paste0(paper1_rds_path,"mice_imputationlong_rev4.rds"))
+imp_1 <- mice(data = Missingdata_long,
+              m = M_recommended,           # Stage 2 M: von Hippel (2018) quadratic rule
+              predictorMatrix = pred,
+              method = meth1,
+              where = where_matrix,
+              diagnostics = TRUE,
+              printFlag = TRUE,
+              maxit = 20) # 5–20 iterations sufficient [@vanbuuren2018flexible]
 
+saveRDS(imp_1, paste0(paper1_rds_path,"mice_imputationlong_VH.rds"))
 ```
 
 
 ```{r eval=T}
-imp_1<-readRDS(paste0(paper1_rds_path,"mice_imputationlong_rev4.rds"))
+imp_1<-readRDS(paste0(paper1_rds_path,"mice_imputationlong_VH.rds"))
 summary(imp_1)
 #saveRDS(imp, paste0(paper1_rds_path,"mice_imputation.rds"))
 plot(imp_1)
@@ -655,11 +816,17 @@ imputed_result %>% filter(partner == 1) %>% select(ssupport6_log1p) %>% vis_miss
 
 ## ── Post-imputation diagnostics ─────────────────────────────────────────────
 
+# 2lonly.pmm consistency check: raeduc_e is a time-invariant variable imputed
+# at the person level. All 3 rows per person must receive the same imputed value.
+# The following should return 0 rows — if not, within-person consistency has failed.
+raeduc_consistency_check <- complete(imp_1, 1) %>%
+  group_by(idauniq) %>%
+  summarise(n_unique_educ = n_distinct(raeduc_e), .groups = "drop") %>%
+  filter(n_unique_educ > 1)
+stopifnot("raeduc_e imputed inconsistently within person" = nrow(raeduc_consistency_check) == 0)
+
 # 1. FMI (Fraction of Missing Information) per analytic variable
 # White et al. 2011: FMI > 0.5 suggests m may be inadequate
-lta_vars <- c("idauniq","time","raagey_z","Sex_BIN","raeduc_e","wealthQ_bin",
-              "MLTC","cesd_lat_shifted","loneliness_group","partner",
-              "painchr_ext","lvimp_shifted_cat")
 
 analytic_in_mids <- intersect(lta_vars, names(imp_1$data))
 
@@ -673,22 +840,31 @@ if (length(analytic_in_mids) > 0) {
                  fmi = mean(pooled$pooled$fmi, na.rm = TRUE))
     }, error = function(e) data.frame(variable = v, fmi = NA_real_))
   })
-  fmi_df <- do.call(rbind, fmi_list)
-  print(fmi_df[order(fmi_df$fmi, decreasing = TRUE), ])
-  if (any(fmi_df$fmi > 0.5, na.rm = TRUE))
-    warning("FMI > 0.5 for: ", paste(fmi_df$variable[fmi_df$fmi > 0.5], collapse = ", "),
-            " — consider increasing m")
+  fmi_df <- do.call(rbind, fmi_list) %>% filter(!is.nan(fmi))
 }
 
-# 2. Density plots: observed vs imputed distributions for continuous variables
-densityplot(imp_1, ~ painlv + shlt + lnlys + cesd_lat_shifted + lvimp_shifted,
+ fmi_df %>% arrange(desc(fmi)) %>%
+  mutate(fmi = round(fmi, 3)) 
+  if (any(fmi_df$fmi > 0.5, na.rm = TRUE)){
+    warning("FMI > 0.5 for: ", paste(fmi_df$variable[fmi_df$fmi > 0.5], collapse = ", ")," — consider increasing m")
+  }else{
+    cat(sprintf("All FMI values acceptable (< 0.50), Max FMI : %.4f (%s)\n", max(fmi_df$fmi), fmi_df$variable[which.max(fmi_df$fmi)]))
+    }
+    
+ 
+ 
+
+#2. Density plots: observed vs imputed distributions for continuous variables
+densityplot(imp_1, ~ painlv + painchr_ext + shlt + raeduc_e + 
+                     #cesd_lat_shifted + lvimp_shifted  # these two variables were complete and are excluded as not imputed
+                     lnlys + nettotw_bu_s_log + drinkwn_e_log + ssupport6_log1p,
             main = "Observed (blue) vs Imputed (red) — continuous vars")
 
 densityplot(imp_1, ~ nettotw_bu_s_log + ssupport6_log1p + drinkwn_e_log,
             main = "Observed (blue) vs Imputed (red) — log-transformed vars")
 
-# 3. Strip plots: plausibility check for key continuous variables
-stripplot(imp_1, painlv + shlt + lnlys + cesd_lat_shifted ~ .imp,
-          main = "Strip plots — imputed values should overlap observed range")
+bwplot(imp_1, painlv + painchr_ext + shlt + raeduc_e + nettotw_bu_s_log + ssupport6_log1p + drinkwn_e_log ~ .imp,
+       main = "Observed vs imputed — distribution per imputation")
+
 ```
 
