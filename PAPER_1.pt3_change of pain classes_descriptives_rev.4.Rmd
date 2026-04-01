@@ -38,8 +38,6 @@ paper1_rds_path<-"~/private_WP5/WP5_data/rds/"
 H_elsa_w4_6<-readRDS(paste0(paper1_rds_path,"H_elsa_w4_6.rds"))
 H_elsa_w1<-readRDS(paste0(paper1_rds_path,"H_elsa_w1.rds"))
 
-## imputed dataset
-Imputed_datasets<-readRDS(paste0(paper1_rds_path,"mice_updatedMIDS_rev4.rds"))
 
 ```
 
@@ -1449,6 +1447,11 @@ ggplot(H_elsa_w4_6, aes(x = r4painchr_ext,
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 library(table1)
 
+# r4lvimp, r4pain_locN_cat, r4painchr_ext: pass-through from H_elsa_w4_6.rds
+# derived in PAPER_1.pt1_Data_prep.Rmd:
+#   r4lvimp          — IRT pain impact score (pt1 § "IMPORT impact IRT data")
+#   r4pain_locN_cat  — pain location count category (pt1 § "N of Pain Locations")
+#   r4painchr_ext    — extended 4-category classifier (pt1 § "Composite Chronic pain state + location")
 var_Ys<-c("r4painchr","r4lvimp")
 
 var_Xs<-c("r4ssupport6","r4partner","r4pain_locN_cat","r4pain_locN")
