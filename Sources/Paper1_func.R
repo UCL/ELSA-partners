@@ -1961,7 +1961,7 @@ categorize_wave <- function(data, var_name, ref_centers) {
 IMPACT_parametrisation_to_mice_objs <- function(mids_object, ref_centers) {
   
   # Extract long format data
-  long_data <- complete(mids_object, action = "long", include = TRUE)
+  long_data <- mice::complete(mids_object, action = "long", include = TRUE)
   
   # Apply clustering to each imputed dataset
   processed_long <- long_data %>%
@@ -1999,7 +1999,7 @@ IMPACT_parametrisation_to_mice_objs <- function(mids_object, ref_centers) {
 ssupport_median_parametrisation_to_mids <- function(mids_object, median_value) {
   require(progress)
   
-  long_data <- complete(mids_object, action = "long", include = TRUE)
+  long_data <- mice::complete(mids_object, action = "long", include = TRUE)
   
   # Create categorical variable ssupport6_cat for all rows with non-missing ssupport6
   long_data <- long_data %>%
@@ -2020,7 +2020,7 @@ ssupport_median_parametrisation_to_mids <- function(mids_object, median_value) {
 add_wealth_quintiles_to_mice <- function(mids_object, w4quintile_breaks_log) {
   
   # Extract long format data
-  long_data <- complete(mids_object, action = "long", include = TRUE)
+  long_data <- mice::complete(mids_object, action = "long", include = TRUE)
   
   # Apply wealth quintiles to each imputed dataset
   processed_long <- long_data %>%
@@ -2060,7 +2060,7 @@ add_wealth_quintiles_to_mice <- function(mids_object, w4quintile_breaks_log) {
 label_variables_for_LTA <- function(mids_object) {
   
   # Extract long format data
-  long_data <- complete(mids_object, action = "long", include = TRUE)
+  long_data <- mice::complete(mids_object, action = "long", include = TRUE)
   
   # Apply transformations to each imputed dataset
   processed_long <- long_data %>%
