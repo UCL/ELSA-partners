@@ -36,18 +36,37 @@ get_parameters <- function(model) {
   }))
 }
 
+# Extract item parameters from a mirt multipleGroup model into a tidy data frame.
+# Used across metric, partial metric, and scalar invariance comparisons.
+extract_params <- function(param_data, Model = "") {
+  param_data %>%
+    mutate(
+      a = items[,1],
+      b = items[,2],
+      Item = rownames(items),
+      Model = Model
+    ) %>%
+    select(Item, Group, Model, a, b)
+}
+
 if(interactive()) mirtCluster()
 ```
 
+> **Note on parallelisation:** `mirtCluster()` is only activated in interactive sessions.
+> When **knitting** this document, all multipleGroup models run single-threaded and will
+> be slow (expect 20–40 min per model on a standard workstation). To enable
+> parallelisation before knitting, run `mirtCluster()` manually in the console first,
+> or remove the `if(interactive())` guard.
+
 # Introduction
 
-[REFRASE] In longitudinal investigations, the question of measurement invariance within IRT is: Does the form of the item response function vary across measurement occasions, or is it invariant over occasions? If the item response function varies across time, the probabilities of various item responses for a given latent variable score have changed over time. Measurement invariance is then violated, and observed changes in item scores over time are ambiguous and difficult to interpret. Change could stem from either real change among the individuals involved or the changing item parameters. However, if the item response function is invariant over time, then the observed changes in item scores cannot result from changes in item parameters and must have other explanations (such as real growth). Some violations of invariance may be trivial from a practical standpoint. Also, violations at the item level may not have substantial scale-level impact if items are combined. ([Millsap 2010](https://srcd.onlinelibrary.wiley.com/doi/10.1111/j.1750-8606.2009.00109.x)).
+<!-- TODO: rephrase for submission -->In longitudinal investigations, the question of measurement invariance within IRT is: Does the form of the item response function vary across measurement occasions, or is it invariant over occasions? If the item response function varies across time, the probabilities of various item responses for a given latent variable score have changed over time. Measurement invariance is then violated, and observed changes in item scores over time are ambiguous and difficult to interpret. Change could stem from either real change among the individuals involved or the changing item parameters. However, if the item response function is invariant over time, then the observed changes in item scores cannot result from changes in item parameters and must have other explanations (such as real growth). Some violations of invariance may be trivial from a practical standpoint. Also, violations at the item level may not have substantial scale-level impact if items are combined. ([Millsap 2010](https://srcd.onlinelibrary.wiley.com/doi/10.1111/j.1750-8606.2009.00109.x)).
 
 
-[REFRASE] The idea that item response theory (IRT) models yield invariant parameter estimates is widely accepted among scholars interested in achieving truly scientific measurements in social and behavioral sciences [Asún et al. 2017](#references)
+<!-- TODO: rephrase for submission -->The idea that item response theory (IRT) models yield invariant parameter estimates is widely accepted among scholars interested in achieving truly scientific measurements in social and behavioral sciences [Asún et al. 2017](#references)
 
 
-[REFRASE] In IRT models, measurement invariance occurs when items exhibit the same item characteristic curves (ICC) across groups of participants or, equivalently, items exhibit the same parameter estimates across groups[Embretson & Reise 2000](#references). 
+<!-- TODO: rephrase for submission -->In IRT models, measurement invariance occurs when items exhibit the same item characteristic curves (ICC) across groups of participants or, equivalently, items exhibit the same parameter estimates across groups[Embretson & Reise 2000](#references). 
 
 internal invariance
 
@@ -71,7 +90,6 @@ If full invariance is rejected, we investigate which items are changing over tim
 ```{r, eval=TRUE,echo=T,warning=FALSE,message=FALSE,error=FALSE}
 
 ## this is marked as "all" because includes both respondents and partners
-#H_elsa_all<-read.csv("c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/Hg3_w1_9_ALL.tab")
 H_elsa_all<-read.csv("~/private/WP5_data/Hg3_w1_9_ALL.tab")
 
 
@@ -155,13 +173,15 @@ for (wave in 2:8) {
 Simplify DFs for irt analysis: I am creating separate dfs for each wave
 ```{r}
 # Simplify DFs for irt analysis
+# itmname is wave-invariant — defined once outside the loop
+itmname <- c("shopa", "housewka", "walkra", "mealsa",
+             "clim1a", "lifta",
+             "hlthlm",
+             "dressa", "toilta")
+
 for (wave in 2:8) {
  df_name <- paste0("H_elsa_w", wave)
   df <- get(df_name)
-  itmname<-c("shopa" , "housewka" , "walkra" , "mealsa",
-             "clim1a" , "lifta" ,
-             "hlthlm" ,
-             "dressa", "toilta")
   varlist<-paste0("r",wave,itmname)
   
   df <- df[c("idauniq",varlist)]
@@ -546,24 +566,6 @@ We explore the parameter differences when we assume full metric invariance
 full_params <- get_parameters(full_metric_model)
 unconstrained_params <- get_parameters(unconstrained_model)
 
-# Parameter differences
-param_diff <- bind_rows(
-  full_params %>% mutate(Model = "Full Metric"),
-  unconstrained_params %>% mutate(Model = "Unconstrained")
-)
-
-# Extract item parameters
-extract_params <- function(param_data, Model = "") {
-  param_data %>%
-    mutate(
-      a = items[,1],
-      b = items[,2],
-      Item = rownames(items),
-      Model = Model
-    ) %>%
-    select(Item, Group, Model, a, b)
-}
-
 param_comparison <- bind_rows(
   extract_params(full_params, Model = "Full_Metric"),
   extract_params(unconstrained_params, Model = "Unconstrained")
@@ -719,25 +721,6 @@ full_params <- get_parameters(full_metric_model)
 partial_params <- get_parameters(final_partial_metric_model)
 unconstrained_params <- get_parameters(unconstrained_model)
 
-#Parameter differences
-param_diff <- bind_rows(
-  full_params %>% mutate(Model = "Full Metric"),
-  partial_params %>% mutate(Model = "Partial"),
-  unconstrained_params %>% mutate(Model = "Unconstrained")
-)
-
-# Extract item parameters
-extract_params <- function(param_data, Model = "") {
-  param_data %>%
-    mutate(
-      a = items[,1],
-      b = items[,2],
-      Item = rownames(items),
-      Model = Model
-    ) %>%
-    select(Item, Group, Model, a, b)
-}
-
 param_comparison <- bind_rows(
   extract_params(full_params, Model = "Full_Metric"),
   extract_params(partial_params,Model = "Partial"),
@@ -757,7 +740,7 @@ ggplot(param_wide, aes(x = a_Partial , y = a_Unconstrained)) +
   geom_point() +
   geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
   labs(title = "Discrimination Parameters: Partial Metric vs Unconstrained",
-       x = "Full Metric", y = "Unconstrained") +
+       x = "Partial Metric", y = "Unconstrained") +
     theme_minimal() +
   facet_wrap(~Group)
 
@@ -820,24 +803,6 @@ We explore the parameter estimate differences when we assume full scalar invaria
 
 full_params <- get_parameters(full_scalar_model)
 part_metric_params <- get_parameters(partial_metric_model)
-
-# Parameter differences
-param_diff <- bind_rows(
-  full_params %>% mutate(Model = "Full scalar"),
-  part_metric_params %>% mutate(Model = "Partial_metric")
-)
-
-# Extract item parameters
-extract_params <- function(param_data, Model = "") {
-  param_data %>%
-    mutate(
-      a = items[,1],
-      b = items[,2],
-      Item = rownames(items),
-      Model = Model
-    ) %>%
-    select(Item, Group, Model, a, b)
-}
 
 param_comparison <- bind_rows(
   extract_params(full_params, Model = "Full_Scalar"),
@@ -996,25 +961,6 @@ full_params <- get_parameters(full_scalar_model)
 partial_params <- get_parameters(final_partial_Scalar_model)
 unconstrained_params <- get_parameters(final_partial_metric_model)
 
-# 5. Parameter differences
-param_diff <- bind_rows(
-  full_params %>% mutate(Model = "Full scalar"),
-  partial_params %>% mutate(Model = "Partial scalar"),
-  unconstrained_params %>% mutate(Model = "Partial metric")
-)
-
-# Extract item parameters
-extract_params <- function(param_data, Model = "") {
-  param_data %>%
-    mutate(
-      a = items[,1],
-      b = items[,2],
-      Item = rownames(items),
-      Model = Model
-    ) %>%
-    select(Item, Group, Model, a, b)
-}
-
 param_comparison <- bind_rows(
   extract_params(full_params, Model = "Full_Scalar"),
   extract_params(partial_params,Model = "Partial_Scalar"),
@@ -1033,7 +979,7 @@ ggplot(param_wide, aes(x = a_Full_Scalar  , y = a_Partial_metric )) +
   geom_point() +
   geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
   labs(title = "Discrimination Parameters: Partial Scalar vs Partial metric",
-       x = "Full Metric", y = "Unconstrained") +
+       x = "Full Scalar", y = "Partial metric") +
     theme_minimal() +
   facet_wrap(~Group)
 
@@ -1041,7 +987,7 @@ ggplot(param_wide, aes(x = b_Full_Scalar  , y = b_Partial_metric)) +
   geom_point() +
   geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
   labs(title = "Difficulty Parameters: Partial Scalar vs Partial metric",
-       x = "Full Metric", y = "Unconstrained") +
+       x = "Full Scalar", y = "Partial metric") +
     theme_minimal() +
   facet_wrap(~Group)
 
@@ -1054,8 +1000,20 @@ ggplot(param_wide, aes(x = b_Full_Scalar  , y = b_Partial_metric)) +
 
 ## Conclusion
 
-this is the estimate of each person level of the latent variable $\theta$. The ability estimates (impact estimates) are under 
-column "F1" and their SE are in col SE_FI. Only the first few rows are printed
+The adopted measurement model is **partial scalar invariance**, retaining
+constraints on discrimination (*a*) and difficulty (*d*) parameters for
+items 1–5, 8–9 (shopa, housewka, walkra, mealsa, clim1a, dressa, toilta).
+Items 6–7 (lifta, hlthlm) were freed at both metric and scalar level based
+on BH-corrected sensitivity analysis (p < 0.05). The practical impact of
+residual non-invariance is negligible: latent score differences between the
+partial scalar and unconstrained models are within ±0.05 across all waves
+(see plots below).
+
+The canonical impact scores under this model are extracted by
+`Meas.Inv.IRTscoreExtraction.R`, which **must be run in the same R session**
+immediately after this Rmd (so that `final_partial_Scalar_model`, `group`,
+and `sc_df_2`–`sc_df_8` remain in the environment). The output is saved as
+`impactEstimates2-8_partialScalar.rds` and is read by pt1.
 
 
 ## Noise associated with full metric and full scalar invariance
