@@ -1449,9 +1449,11 @@ library(table1)
 # r4lvimp, r4pain_locN_cat, r4painchr_ext: pass-through from H_elsa_w4_6.rds
 # derived in PAPER_1.pt1_Data_prep.Rmd:
 #   r4lvimp          — IRT pain impact score (pt1 § "IMPORT impact IRT data")
+#   r4lvimp
+H_elsa_w4_6$r4lvimp_shifted<-H_elsa_w4_6$r4lvimp - min(H_elsa_w4_6$r4lvimp)
 #   r4pain_locN_cat  — pain location count category (pt1 § "N of Pain Locations")
 #   r4painchr_ext    — extended 4-category classifier (pt1 § "Composite Chronic pain state + location")
-var_Ys<-c("r4painchr","r4lvimp")
+var_Ys<-c("r4painchr","r4lvimp_shifted")
 
 var_Xs<-c("r4ssupport6","r4partner","r4pain_locN_cat","r4pain_locN")
 
@@ -1467,7 +1469,7 @@ var_Covs<-c("r4agey","r4agey_cat",
 table1_data <- prepare_table1_data(H_elsa_w4_6, var_Ys, var_Xs, var_Covs)
 
 # Create the table
-table1_1 <- table1(~ r4lvimp + r4pain_locN_cat + r4cesd + r4agey + ragender + raracem +
+table1_1 <- table1(~ r4lvimp_shifted + r4pain_locN_cat + r4cesd + r4agey + ragender + raracem +
                       r4ssupport6 + r4partner + r4totwq5_bu_s + r4wealthBIN + raeduc_e + r4work + 
                       r4smoken + r4drinkwn_e + r4mbmi + r4lnlys+ r4MLTC_cat |
                      r4painchr, 
