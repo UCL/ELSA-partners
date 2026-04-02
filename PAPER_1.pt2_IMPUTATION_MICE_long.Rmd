@@ -807,7 +807,7 @@ plot(imp_1)
 
 
 # Extract one completed dataset
-imputed_result <- complete(imp_1, 1)
+imputed_result <- mice::complete(imp_1, 1)
 
 Missingdata_long %>% vis_miss()
 imputed_result %>% vis_miss()
@@ -819,7 +819,7 @@ imputed_result %>% filter(partner == 1) %>% select(ssupport6_log1p) %>% vis_miss
 # 2lonly.pmm consistency check: raeduc_e is a time-invariant variable imputed
 # at the person level. All 3 rows per person must receive the same imputed value.
 # The following should return 0 rows — if not, within-person consistency has failed.
-raeduc_consistency_check <- complete(imp_1, 1) %>%
+raeduc_consistency_check <- mice::complete(imp_1, 1) %>%
   group_by(idauniq) %>%
   summarise(n_unique_educ = n_distinct(raeduc_e), .groups = "drop") %>%
   filter(n_unique_educ > 1)
