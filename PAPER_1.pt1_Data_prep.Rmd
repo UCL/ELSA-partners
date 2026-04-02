@@ -277,7 +277,7 @@ DemoVars<-c("raracem",
             paste0("r",c(1,4:6),"cancre"), # cancer
             paste0("r",c(1,4:6),"alzhe"),  # Alzheimer's disease
             paste0("r",c(1,4:6),"demene"), # dementia
-            paste0("r",c(1,4:6),"psyche"), # dementia
+            paste0("r",c(1,4:6),"psyche"), # mental health disorders (depression, anxiety, psychosis)
 
 
             paste0("r",c(1,4:6),"parkine"), # Parkinson
@@ -384,6 +384,16 @@ H_elsa_w4_6<-H_elsa_w4_6 %>%
 
 H_elsa_w1<-H_elsa_w1 %>%
   mutate(across(all_of(col_with_NA), ~if_else(. < 0, NA_real_, .)))
+
+```
+
+## baseline Age
+
+We take the baseline age ( wave 4 age) as a timeinvariant predictor 
+
+```{r}
+H_elsa_w4_6$raagey<- H_elsa_w4_6$r4agey
+      
 
 ```
 
