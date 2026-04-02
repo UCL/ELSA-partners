@@ -19,7 +19,7 @@ library(NbClust)
 library(cluster)
 library(readr)
 
-source("~/ELSA-partners/Sources/Paper1_func.R")
+source("Sources/Paper1_func.R")
 
 Imputed_datasets<-readRDS("~/private_WP5/WP5_data/rds/mice_imputationlong_VH.rds")
 paper1_rds_path<-"~/private_WP5/WP5_data/rds/"
@@ -52,7 +52,7 @@ incomplete variables that were imputed:
 ## Pass-through variables from upstream pipeline
 
 The following LTA variables are not derived in this file — they enter via
-`mice_imputationlong_rev4.rds` and are propagated as-is through `updated_mids`:
+`mice_imputationlong_VH.rds` and are propagated as-is through `updated_mids`:
 
 | Variable | Derived in | Location |
 |---|---|---|
@@ -327,7 +327,7 @@ df_plot<-imputed.df %>% filter(wave == 4 & !is.na(ssupport6_log1p))
 
 
 ggplot(df_plot, aes(x=ssupport6_log1p)) + 
-    geom_histogram(aes(y=..density..),      # Histogram with density instead of count on y-axis
+    geom_histogram(aes(y=after_stat(density)),      # Histogram with density instead of count on y-axis
                    colour="black", fill="white") +
     #geom_density(alpha=.2, fill="#FF6666")+  # Overlay with transparent density plot
     geom_vline(aes(xintercept=mean(ssupport6_log1p, na.rm=T)), color="red", linetype="dashed", size=1) +
