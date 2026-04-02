@@ -73,39 +73,89 @@ We use wave 4 as the baseline to get the reference medoid from this
 
 #Use first wave as reference (first wave)
 imputed.df4<-imputed.df%>%filter(wave == 4)
-nonzero_data_ref <- na.omit(subset(imputed.df4, lvimp_shifted > 0.1)$lvimp_shifted)
+nonzero_data_ref <- na.omit(imputed.df$lvimp_shifted) # there is no missingness but I am checking this 
 
-# Perform clustering on reference wave
-#nb <- NbClust(data = matrix(nonzero_data_ref), 
-#              distance = "manhattan",
-#              min.nc = 2, max.nc = 8, 
-#              method = "average")
+# Exclude near-zero IRT scores before clustering.
+# Under partial scalar invariance, two items (lifta, hlthlm) have freed
+# intercepts, which means respondents with genuinely zero health impact
+# can still receive a small positive IRT score (~0.00079) rather than
+# exactly 0. The threshold 0.1 sits well above this artefactual floor
+# and cleanly separates true "no impact" respondents (coded 0 in
+# lvimp_shifted_cat) from those with measurable impact.
+nonzero_data_ref<- subset(imputed.df4, lvimp_shifted > 0.1)$lvimp_shifted
+
+library(mclust)
+  fit <- Mclust(nonzero_data_ref, G = 1:4)  # BIC selects k
+  summary(fit)
+# Mclust suggests k=3 by BIC, but the poor cluster separation (BIC–ICL gap of ~733) undermines that solution. 
+# Proceeding with K=2
 
 
-# Then we use PAM (Partitioning Around Medoids) instead of kmeans which still assumes normality
-# PAM works with manhattan distance. This way we get the medoids (equivalent of centroids with kmeans)
+# TWO-PART PARAMETRISATION OF lvimp_shifted
+# -----------------------------------------
+# lvimp_shifted is zero-inflated. The zero mass represents respondents with
+# no measurable health impact — a qualitatively distinct state defined by the
+# scale itself, not a low value on the same continuum as non-zero scores.
+# Category 0 ("no impact") is therefore not discovered by clustering; it is
+# assigned a priori from substantive knowledge of the instrument.
+#
+# Clustering operates only on the non-zero subspace (lvimp_shifted > 0.1),
+# characterising the distribution of measurable impact. The resulting clusters
+# are then rejoined with the zero group to form the final ordered indicator:
+#   0 = no impact     (structural zeros — a priori)
+#   1 = lower impact  \
+#   2 = higher impact  > empirically determined by PAM below
+#  [3 = highest impact if k=3 is selected]
+#
+# This mirrors the logic of two-part / hurdle models for zero-inflated outcomes.
+#
+# PAM (Partitioning Around Medoids) is preferred over k-means because:
+#   - Medoids are actual observed IRT scores — interpretable on the original scale
+#   - Does not assume normality (k-means implicitly does via L2 minimisation)
+#   - More robust to outliers than k-means
+# Note: for univariate data, Manhattan and Euclidean distance are equivalent;
+# metric choice has no effect on the result here.
 library(cluster)
-# Using PAM over k-means because PAM:
-#         uses actual data points as medioids 
-#         Works well with Manhattan distance 
-#         Doesn't assume normality like k-means does
-n_clusters<-2
-pam_result <- pam(nonzero_data_ref, k = n_clusters, metric = "manhattan")
-pam_result$medoids   # cluster medoids
-pam_result$clustering %>% table  # cluster assignments
-summary(pam_result)
-sil <- silhouette(pam_result$clustering, dist(nonzero_data_ref, method = "manhattan"))
-plot(sil, main = "Silhouette Plot for PAM Clustering", 
+################  
+n_clusters<-3 ##
+################
+pam_result_3 <- pam(nonzero_data_ref, k = n_clusters, metric = "manhattan")
+pam_result_3$medoids   # cluster medoids
+pam_result_3$clustering %>% table  # cluster assignments
+
+sil_3 <- silhouette(pam_result_3$clustering, dist(nonzero_data_ref, method = "manhattan"))
+average_sil_3<-mean(sil_3[,3])
+plot(sil_3, main = "Silhouette Plot for PAM Clustering", 
      col = 1:n_clusters, border = NA)
 
+summary(pam_result_3)
+average_sil_3
+################
+n_clusters<-2 ##
+################
+pam_result_2 <- pam(nonzero_data_ref, k = n_clusters, metric = "manhattan")
+pam_result_2$medoids   # cluster medoids
+pam_result_2$clustering %>% table  # cluster assignments
+summary(pam_result_2)
 
+sil_2 <- silhouette(pam_result_2$clustering, dist(nonzero_data_ref, method = "manhattan"))
+average_sil_2<-mean(sil_2[,3])
+plot(sil_2, main = "Silhouette Plot for PAM Clustering", 
+     col = 1:n_clusters, border = NA)
+summary(pam_result_2)
+average_sil_2
+```
+
+
+
+```{r}
 
 set.seed(200720)
 
 n_boot <- 2000
 # Get optimal number of clusters and centroids from wave 2
 # Nb clust and our theory about these cluster to us to select 3 clusters
-n_clusters <- 2
+n_clusters <- 3
 
 library(fpc)
 ## define the pam function to be used by clusterboot (as per documentation)
@@ -127,7 +177,7 @@ ImpactBootstability_results <- clusterboot(nonzero_data_ref,
                           B = n_boot,          # number of bootstrap samples
                           seed = 200720)     # for reproducibility
 
-saveRDS(ImpactBootstability_results,paste0(paper1_MODELS_rds_path,"Impact_clustStability_boot2000.rds"))
+saveRDS(ImpactBootstability_results,paste0(paper1_MODELS_rds_path,"Impact_2_clust_Stability_boot2000.rds"))
 
 ```
 
