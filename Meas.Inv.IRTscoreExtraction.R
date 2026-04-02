@@ -1,7 +1,7 @@
 # ============================================================
 # Extract IRT impact scores under partial scalar invariance
 # ============================================================
-# Prerequisite: MI_2PL_ELSA.Rmd must have been run in this
+# Prerequisite: Measurement_invariance_IRT.Rmd must have been run in this
 # session, providing:
 #   - final_partial_Scalar_model  (mirt multipleGroup object)
 #   - group                       (factor: wave membership per row)
@@ -63,8 +63,7 @@ for (wave in 2:8) {
   
   if (nrow(wave_scores) != nrow(df)) {
     stop(sprintf(
-      "Row mismatch at wave %d: sc_df_%d has %d rows, ",
-      "group index yields %d rows. Check group alignment.",
+      "Row mismatch at wave %d: sc_df_%d has %d rows, \n group index yields %d rows. Check group alignment.",
       wave, wave, nrow(df), nrow(wave_scores)
     ))
   }
@@ -113,16 +112,13 @@ if (max(sds) - min(sds) > 0.15) {
 
 # ── Export ────────────────────────────────────────────────────
 
-out_path <- file.path(
-  "~/private/WP5_data/rds/",
-  "impactEstimates2-8_partialScalar.rds"
-)
+output_path <- "~/private_WP5/WP5_data/rds/"
 
-saveRDS(scores_wide, file = out_path)
+saveRDS(scores_wide, file = paste0(output_path,"impactEstimates2-8_partialScalar.rds"))
 
 
 cat(sprintf(
   "\nScores saved to:\n  %s\n  N = %d respondents, waves 2-8\n",
-  out_path, nrow(scores_wide)
+  paste0(output_path,"impactEstimates2-8_partialScalar.rds"), nrow(scores_wide)
 ))
 
