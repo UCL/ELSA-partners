@@ -21,7 +21,7 @@ library(readr)
 
 source("~/ELSA-partners/Sources/Paper1_func.R")
 
-Imputed_datasets<-readRDS("~/private_WP5/WP5_data/rds/mice_imputationlong_rev4.rds")
+Imputed_datasets<-readRDS("~/private_WP5/WP5_data/rds/mice_imputationlong_VH.rds")
 paper1_rds_path<-"~/private_WP5/WP5_data/rds/"
 paper1_MODELS_rds_path<-"~/private_WP5/WP5_data/model_fits/"
 
@@ -39,7 +39,7 @@ Here we set up our derived variables and we propagate in all imputed datasets
 
 
 library(mice)
-imputed.df<-complete(Imputed_datasets,1)
+imputed.df<-mice::complete(Imputed_datasets,1)
 ```
 incomplete variables that were imputed:
 * "painlv", 
@@ -154,7 +154,7 @@ ref_centers_IMPACT <- sort(pam_result$medoids)
 # Apply to your mice object
 updated_mids <- IMPACT_parametrisation_to_mice_objs(Imputed_datasets, ref_centers_IMPACT)
 
-imputed.df123<-complete(updated_mids,1) %>% filter(wave == 4)
+imputed.df123<-mice::complete(updated_mids,1) %>% filter(wave == 4)
 
 imputed.df123 %>% select(lvimp_shifted_cat) %>% table
 
@@ -165,7 +165,7 @@ imputed.df123 %>% select(lvimp_shifted_cat) %>% table
 We wave 4 quantile breaks calculated from one reference dataset to ensure consistent categorization across all imputations
 ```{r, eval=T, echo=FALSE}
 # Calculate wave 4 quintile breaks from complete case or first imputation
-data_imp1 <- complete(updated_mids, 1)
+data_imp1 <- mice::complete(updated_mids, 1)
 
 global_min <- -436410
 
@@ -201,7 +201,7 @@ the total score here is log1p() transformed to improve its skewed distribution. 
 ### Lonelyness bin
 
 ```{r}
-data_imp1 <- complete(updated_mids, 1)
+data_imp1 <- mice::complete(updated_mids, 1)
 data_w4<-data_imp1%>% filter(wave == 4)
 data_w5<-data_imp1%>% filter(wave == 5)
 data_w6<-data_imp1%>% filter(wave == 6)
@@ -260,7 +260,7 @@ comparison <- data.frame(
 apply_loneliness_clustering <- function(mids_object, ref_medoids = c(1.00, 1.75)) {
   
   # Extract long format data
-  long_data <- complete(mids_object, action = "long", include = TRUE)
+  long_data <- mice::complete(mids_object, action = "long", include = TRUE)
   
   # Apply clustering
   processed_long <- long_data %>%
@@ -286,9 +286,9 @@ apply_loneliness_clustering <- function(mids_object, ref_medoids = c(1.00, 1.75)
 # Apply to your mids object
 # ref_medoids c(1.00, 1.75) are hardcoded as the reference clustering centres.
 # Validated as stable across all three waves via PAM (cluster_wave()):
-#   Wave 4: medoids = 1.00, 1.75 | sizes = 3777, 4237 | avg silhouette = 0.605
-#   Wave 5: medoids = 1.00, 1.75 | sizes = 4204, 3810 | avg silhouette = 0.613
-#   Wave 6: medoids = 1.00, 1.75 | sizes = 3845, 4169 | avg silhouette = 0.616
+#   Wave 4: medoids = 1.00, 1.75 | sizes = 3782, 4232 | avg silhouette = 0.604
+#   Wave 5: medoids = 1.00, 1.75 | sizes = 4224, 3790 | avg silhouette = 0.613
+#   Wave 6: medoids = 1.00, 1.75 | sizes = 3823, 4192 | avg silhouette = 0.615
 # Silhouette widths >0.60 indicate well-separated clusters. Wave 5 label order
 # is reversed in raw output (1.75 first) but medoid values are identical.
 # Wave 4 medoids are used as the cross-wave reference (most common convention).
@@ -296,7 +296,7 @@ updated_mids <- apply_loneliness_clustering(updated_mids, ref_medoids = c(1.00, 
 
 
 # Verify the clustering worked across imputations
-#check_clustering <- complete(updated_mids_with_clusters, action = "long", include = F)
+#check_clustering <- mice::complete(updated_mids_with_clusters, action = "long", include = F)
 
 # Check distribution by wave and imputation
 # check_clustering %>%
@@ -371,7 +371,7 @@ updated_mids <- label_variables_for_LTA(updated_mids)
 ## Write mids to rds
 ```{r, eval=FALSE, echo=FALSE}
 
-saveRDS(updated_mids, paste0(paper1_rds_path,"mice_updatedMIDS_rev4.rds"))
+saveRDS(updated_mids, paste0(paper1_rds_path,"mice_updatedMIDS_VH.rds"))
 
 
   ```
