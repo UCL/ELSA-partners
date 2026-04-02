@@ -23,12 +23,11 @@ library(patchwork)
 library(corrplot)
 library(GGally)
 
-source("~/ELSA-partners/Sources/Paper1_func.R")
+source("Sources/Paper1_func.R")
 
 ```
 
 ```{r eval=TRUE,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
-#paper1_rds_path<-"c:/Users/d.vitali/Desktop/Github/CRIISP-WP5/data/clean/paper1/"
 paper1_rds_path<-"~/private_WP5/WP5_data/rds/"
 
 # refreshments: 3, 4, 6, 7, 9 and 10
