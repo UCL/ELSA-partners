@@ -1923,7 +1923,11 @@ categorize_wave <- function(data, var_name, ref_centers) {
   # Set all values below 0.1 to category 0 (the "zero" score), but keep NAs as NA
   data[[cat_var_name]][data[[var_name]] < 0.1 & !is.na(data[[var_name]])] <- 0
   
-  # Get non-zero indices (values >= 0), excluding NAs
+  # Get non-zero indices (values >= 0.1), excluding NAs.
+  # Threshold 0.1 excludes artefactual near-zero scores: under partial scalar
+  # invariance, freed item intercepts (lifta, hlthlm) produce scores ~0.00079
+  # for respondents with genuinely zero health impact. These are structural
+  # zeros on the IRT scale and are assigned category 0 above, not clustered.
   nonzero_indices <- which(data[[var_name]] >= 0.1 & !is.na(data[[var_name]]))
   
   if(length(nonzero_indices) > 0) {
@@ -1945,7 +1949,7 @@ categorize_wave <- function(data, var_name, ref_centers) {
   
   # NA values in the original variable will remain NA in the categorical variable
   # because we initialized all values as NA and only modified non-NA entries
-  
+  data[[cat_var_name]] <- as.integer(data[[cat_var_name]])
   return(data)
 }
 
