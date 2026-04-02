@@ -355,7 +355,7 @@ prepare_table1_data <- function(data, var_Ys, var_Xs, var_Covs, strat_var = "r4p
     )
   
   # Add variable labels
-  label(table1DF$r4lvimp) <- "Health impact IRT score (> is worse)"
+  label(table1DF$r4lvimp_shifted) <- "Health impact IRT score (> is worse)"
   label(table1DF$r4painchr) <- "Chronic Pain Status"
   label(table1DF$r4ssupport6) <- "Marital Strain (> worse, max = 4)"
   label(table1DF$r4partner)<- "Partnership status"
