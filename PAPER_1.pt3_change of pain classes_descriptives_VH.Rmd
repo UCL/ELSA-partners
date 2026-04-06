@@ -1495,8 +1495,92 @@ table1_2 <- table1(~ r4ssupport6 + r4partner | r4painchr,
 
 kable(as.data.frame(table1_2))
 
-
-
 ```
 
+## Table 2: Wave 4 analytic sample vs Wave 1 (HSE) reference
+
+Wave 1 of ELSA was drawn directly from the Health Survey for England (HSE) 2001 and is therefore approximately representative of the English population aged 50+. Wave 4 is our analytic sample (participants completing all three waves). Greater similarity between the two samples supports the external validity of our findings. Chronic pain prevalence is not compared here as the HSE did not include an equivalent measure.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
+library(tableone)
+
+# Build harmonised dataset from both waves using only variables present in both
+hse_sub <- H_elsa_w1 %>%
+  transmute(
+    Wave      = factor("Wave 1 (HSE)", levels = c("Wave 1 (HSE)", "Wave 4")),
+    Age       = r1agey,
+    Age_cat   = r1agey_cat,
+    Sex       = factor(ragender, levels = c(1, 2), labels = c("Male", "Female")),
+    Education = factor(raeduc_e, levels = 1:5,
+                       labels = c("Less than secondary", "Other", "Secondary",
+                                  "Some college", "College and above")),
+    WealthQ   = factor(r1totwq5_bu_s, levels = 1:5,
+                       labels = c("Q1 (most deprived)", "Q2", "Q3", "Q4",
+                                  "Q5 (least deprived)")),
+    MLTC      = factor(case_when(
+                  is.na(r1MLTC) ~ NA_character_,
+                  r1MLTC == 0   ~ "No conditions",
+                  r1MLTC == 1   ~ "One condition",
+                  r1MLTC == 2   ~ "Two conditions",
+                  r1MLTC >= 3   ~ "Three or more"
+                ), levels = c("No conditions", "One condition",
+                              "Two conditions", "Three or more")),
+    Employed  = factor(r1work,   levels = c(0, 1), labels = c("Not working", "Working")),
+    Smoker    = factor(r1smoken, levels = c(0, 1), labels = c("Non-smoker", "Current smoker")),
+    Partner   = factor(r1partner,levels = c(0, 1), labels = c("Without partner", "With partner"))
+  )
+
+w4_sub <- H_elsa_w4_6 %>%
+  transmute(
+    Wave      = factor("Wave 4", levels = c("Wave 1 (HSE)", "Wave 4")),
+    Age       = r4agey,
+    Age_cat   = r4agey_cat,
+    Sex       = factor(ragender, levels = c(1, 2), labels = c("Male", "Female")),
+    Education = factor(raeduc_e, levels = 1:5,
+                       labels = c("Less than secondary", "Other", "Secondary",
+                                  "Some college", "College and above")),
+    WealthQ   = factor(r4totwq5_bu_s, levels = 1:5,
+                       labels = c("Q1 (most deprived)", "Q2", "Q3", "Q4",
+                                  "Q5 (least deprived)")),
+    MLTC      = factor(case_when(
+                  is.na(r4MLTC) ~ NA_character_,
+                  r4MLTC == 0   ~ "No conditions",
+                  r4MLTC == 1   ~ "One condition",
+                  r4MLTC == 2   ~ "Two conditions",
+                  r4MLTC >= 3   ~ "Three or more"
+                ), levels = c("No conditions", "One condition",
+                              "Two conditions", "Three or more")),
+    Employed  = factor(r4work,   levels = c(0, 1), labels = c("Not working", "Working")),
+    Smoker    = factor(r4smoken, levels = c(0, 1), labels = c("Non-smoker", "Current smoker")),
+    Partner   = factor(r4partner,levels = c(0, 1), labels = c("Without partner", "With partner"))
+  )
+
+hse_w4_df <- bind_rows(hse_sub, w4_sub)
+
+tab2 <- CreateTableOne(
+  vars       = c("Age", "Age_cat", "Sex", "Education", "WealthQ",
+                 "MLTC", "Employed", "Smoker", "Partner"),
+  factorVars = c("Age_cat", "Sex", "Education", "WealthQ",
+                 "MLTC", "Employed", "Smoker", "Partner"),
+  strata     = "Wave",
+  data       = hse_w4_df,
+  addOverall = FALSE
+)
+
+# SMD only, no p-values
+# |SMD| < 0.10 = negligible imbalance; 0.10-0.20 = small; > 0.20 = meaningful
+tab2_mat <- print(tab2,
+                  smd         = TRUE,
+                  test        = FALSE,
+                  printToggle = FALSE,
+                  noSpaces    = TRUE)
+
+kable(tab2_mat,
+      caption = paste0(
+        "Table 2. Wave 4 analytic sample vs Wave 1 (HSE) reference population. ",
+        "SMD = standardised mean difference; |SMD| < 0.10 indicates negligible imbalance. ",
+        "Wave 1 (HSE) n = ", nrow(hse_sub), "; Wave 4 n = ", nrow(w4_sub),
+        ". Chronic pain not compared: no equivalent measure in HSE."
+      ))
+```
 
