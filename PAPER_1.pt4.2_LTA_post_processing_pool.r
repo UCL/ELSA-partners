@@ -3,7 +3,7 @@
 ################################################################################
 # PURPOSE:
 #   1. For each of 22 imputations and each model (TE / DE):
-#      a. Load raw_results from imputation_loop.r
+#      a. Load raw_results from PAPER_1.pt4.1_imputation_loop.r
 #      b. Determine state ordering (severity-based)
 #      c. Rebase + refit with SE
 #      d. Extract regression_summaries() → clean tibbles
@@ -13,7 +13,7 @@
 #   4. Produce key results tables (exposure transitions + maintenance)
 #
 # INPUTS:
-#   raw_results_{TE/DE}_imp{i}.rds  (from imputation_loop.r)
+#   raw_results_{TE/DE}_imp{i}.rds  (from PAPER_1.pt4.1_imputation_loop.r)
 #
 # OUTPUTS:
 #   summaries_{TE/DE}_imp{i}.rds    — per-imputation clean tibbles
@@ -48,7 +48,7 @@ n_imputations <- 22
 
 # ==============================================================================
 # 3. REBUILD FORMULAS
-# (identical to imputation_loop.r — must stay in sync)
+# (identical to PAPER_1.pt4.1_imputation_loop.r — must stay in sync)
 # ==============================================================================
 
 updated_mids <- readRDS(paste0(rds_path, "mice_updatedMIDS_VH.rds"))
