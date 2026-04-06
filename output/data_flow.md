@@ -80,7 +80,7 @@ flowchart TD
     %%  STAGE 4 — LTA model (out of scope)
     %% ─────────────────────────────────────────────
     subgraph LTA["📈 Step 4 — LTA Model (out of scope this run)"]
-        PT4["PAPER_1_pt4_LTA_models.Rmd\n· ssupport6_cat derivation\n· k=4 state selection\n· TE and DE models\n· reduced nested models"]
+        PT4["PAPER_1.pt4_LTA_models.Rmd\n· ssupport6_cat derivation\n· k=4 state selection\n· TE and DE models\n· reduced nested models"]
         MODELS[("model_fits/\nTotalEffects · DirectEffects\nfit_reordered_TE/DE\netc.")]
         PT4 --> MODELS
     end
@@ -127,6 +127,6 @@ flowchart TD
 | 2 | `PAPER_1.pt2_IMPUTATION_MICE_long.Rmd` | `mice_imputationlong_rev4.rds` |
 | 2.1 | `PAPER_1.pt2.1_DERIVED VARIABLES_rev.4.Rmd` | `mice_updatedMIDS_rev4.rds` ✅ final analysis dataset |
 | 3 | `PAPER_1.pt3_…_descriptives_rev.4.Rmd` | tables / figures (no RDS output) |
-| 4 | `PAPER_1_pt4_LTA_models.Rmd` *(out of scope)* | fitted LTA model RDS files |
+| 4 | `PAPER_1.pt4_LTA_models.Rmd` *(out of scope)* | fitted LTA model RDS files |
 
 All `eval=F` save chunks are intentional re-run guards — output files pre-exist on disk.
