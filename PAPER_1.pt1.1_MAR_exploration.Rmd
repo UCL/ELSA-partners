@@ -1,0 +1,548 @@
+---
+title: "PAPER 1 — pt1.1 MAR Exploration"
+author: "Diego Vitali"
+output:
+  github_document:
+    toc: True
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+editor_options:
+  markdown:
+    wrap: 72
+bibliography: references.bib
+
+---
+
+```{r setup, eval=TRUE, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
+library(tidyr)      # data reshaping (pivot_longer)
+library(dplyr)      # data wrangling
+library(ggplot2)    # plotting
+library(naniar)     # missingness visualisation (vis_miss, gg_miss_var)
+library(readr)      # file I/O
+library(mice)       # multiple imputation; mice::complete() for completed datasets
+library(patchwork)  # combining ggplot panels
+library(ggrepel)    # non-overlapping labels on ggplot (geom_label_repel)
+library(broom)      # tidy() for model output (missingness logistic regressions)
+
+source("~/ELSA-partners/Sources/Paper1_func.R")
+
+paper1_rds_path <- "~/private_WP5/WP5_data/rds/"
+
+H_elsa_w4_6 <- readRDS(paste0(paper1_rds_path, "H_elsa_w4_6.rds"))
+```
+
+# Overview
+
+This file explores the missing data structure in the analytic dataset
+prior to multiple imputation (pt2). It asks two questions:
+
+1. **Pre-imputation:** What is the pattern and magnitude of missingness?
+   Is missingness plausibly MAR conditional on observed covariates?
+
+2. **Post-imputation:** Do the imputed values look plausible? Under MAR,
+   imputed values should distribute similarly to observed values at
+   equivalent missingness probability levels (Bondarenko & Raghunathan
+   2016).
+
+The post-imputation section reads `mice_imputationlong_VH.rds`
+(output of pt2) and therefore must be run after pt2.
+
+---
+
+# Pre-imputation: missingness patterns
+
+## Variable selection
+
+Select relevant variables: 
+(race is excluded as an auxillary variable because sample is 97% white)
+```{r}
+# This block mirrors the pt2 data prep — keep in sync if pt2 changes.
+Missingdata_wide <- H_elsa_w4_6 %>%
+  select(c("idauniq",
+          #varnames                          # description    (type); whether (comp)lete or (inc)omplete data
+           paste0("r",4:6,"painlv"),         #                (categorical); incomp 
+           paste0("r",4:6,"painchr_ext"),    #                (categorical); incomp 
+           paste0("r",4:6,"lvimp"),          #                (categorical); incomp 
+           paste0("r",4:6,"shlt"),           # self reported health               (categorical); incomp 
+           paste0("r",4:6,"adltot6"),        # ADL total score                    (numeric); incomp 
+           paste0("r",4:6,"partner"),        # having a partner                   (binary); comp 
+           paste0("r",4:6,"ssupport6"),      # Marital strain score             (numeric, skewed) incomplete;
+           paste0("r",4:6,"lnlys"),          # UCLA - loneliness                (numeric, skewed) incomplete;
+           "raagey",                         # Baseline age                     (numeric, normal); comp 
+           "ragender",                       # Gender                           (binary); comp 
+           #"raracem",                        # Race/ethnicity                   (binary); comp
+           paste0("r",4:6,"nettotw_bu_s"),     # Net wealth                     (numeric, skewed); incomp
+           "raeduc_e",                       # Education                        (categorical); incomp
+           paste0("r",c(4:6),"smoken"),      # smoking                          (binary); incomp
+           paste0("r",4:6,"work"),           # Working status                   (binary); incomp
+           paste0("r",4:6,"drinkwn_e"),      # Drinking (weekly units)          (continuous); incomp
+#           paste0("r",c(4,6),"mbmi"),        # BMI                              (numeric); incomp
+#           paste0("r",c(4,6),"hscrp"),       # CRP                              (numeric); incomp
+           paste0("r",4:6,"PA_cat"),         # Physical activity                (categorical); incomp
+           paste0("r",4:6,"cesd_lat"),       # Depression latent score          (numeric, skewed); incomp
+           paste0("r",4:6,"MLTC")            # Multiple long-term condit. count (numeric/count, skewed); incomp
+  ))
+
+#str(Missingdata_wide)
+```
+
+### Transform skewed variables
+
+Wealth: Shift to positive and log-transform.
+
+Impact and drinking: Shift/log-transform as appropriate.
+
+Create auxiliary variables for change (e.g., MLTC_change_w5, MLTC_change_w6) to 
+capture longitudinal change and reduce collinearity.
+
+```{r}
+###### TRANSFORM ###################
+### Transform wealth data
+
+# Calculate global minimums once
+global_min_wealth <- min(c(Missingdata_wide$r4nettotw_bu_s, 
+                          Missingdata_wide$r5nettotw_bu_s, 
+                          Missingdata_wide$r6nettotw_bu_s), na.rm = TRUE)
+
+global_min_lvimp <- min(c(Missingdata_wide$r4lvimp, 
+                          Missingdata_wide$r5lvimp, 
+                          Missingdata_wide$r6lvimp), na.rm = TRUE)
+
+global_min_cesd_lat <- min(c(Missingdata_wide$r4cesd_lat, 
+                          Missingdata_wide$r5cesd_lat, 
+                          Missingdata_wide$r6cesd_lat), na.rm = TRUE)
+
+
+
+# Apply same shift to all waves
+Missingdata_wide <- Missingdata_wide %>%
+  mutate(
+    r4nettotw_bu_s_log = log(r4nettotw_bu_s - global_min_wealth + 1),
+    r5nettotw_bu_s_log = log(r5nettotw_bu_s - global_min_wealth + 1),
+    r6nettotw_bu_s_log = log(r6nettotw_bu_s - global_min_wealth + 1)
+  )
+Missingdata_wide<- Missingdata_wide %>%
+  select(-r4nettotw_bu_s,-r5nettotw_bu_s,-r6nettotw_bu_s)
+
+
+### shift imp_data
+Missingdata_wide <- Missingdata_wide %>%
+  mutate(
+    # Shift data to make all values positive (if necessary)
+    r4lvimp_shifted = r4lvimp - global_min_lvimp,
+    r5lvimp_shifted = r5lvimp - global_min_lvimp,
+    r6lvimp_shifted = r6lvimp - global_min_lvimp,
+  )
+# Remove original impact variables
+
+Missingdata_wide<- Missingdata_wide %>%
+  select(-r4lvimp,-r5lvimp,-r6lvimp)
+
+### shift depr_lat data
+Missingdata_wide <- Missingdata_wide %>%
+  mutate(
+    # Shift data to make all values positive (if necessary)
+    r4cesd_lat_shifted = r4cesd_lat - global_min_cesd_lat,
+    r5cesd_lat_shifted = r5cesd_lat - global_min_cesd_lat,
+    r6cesd_lat_shifted = r6cesd_lat - global_min_cesd_lat,
+  )
+Missingdata_wide<- Missingdata_wide %>%
+  select(-r4cesd_lat,-r5cesd_lat,-r6cesd_lat)
+
+
+### Transform drinkning data
+#Missingdata_wide$r4drinkwn_e %>% log() %>% hist(breaks = seq(-1,2,0.1))
+Missingdata_wide <- Missingdata_wide %>%
+  mutate(
+    r4drinkwn_e_log  = log1p(r4drinkwn_e),
+    r5drinkwn_e_log  = log1p(r5drinkwn_e),
+    r6drinkwn_e_log  = log1p(r6drinkwn_e)
+  )
+Missingdata_wide<- Missingdata_wide %>%
+  select(-r4drinkwn_e,-r5drinkwn_e,-r6drinkwn_e)
+
+
+### Transform support data
+#Missingdata_wide$r4ssupport6 %>% log1p() %>% hist(breaks = seq(-1,2,0.1))
+Missingdata_wide <- Missingdata_wide %>%
+  mutate(
+    r4ssupport6_log1p  = log1p(r4ssupport6),
+    r5ssupport6_log1p  = log1p(r5ssupport6),
+    r6ssupport6_log1p  = log1p(r6ssupport6)
+  )
+Missingdata_wide<- Missingdata_wide %>%
+  select(-r4ssupport6,-r5ssupport6,-r6ssupport6)
+
+
+#str(Missingdata_wide)
+
+# wave 4 ssupport missingness
+ss4<-vis_miss(Missingdata_wide[which(Missingdata_wide$r4partner == 1),] %>% select(r4ssupport6_log1p))
+# wave 5 ssupport missingness
+ss5<-vis_miss(Missingdata_wide[which(Missingdata_wide$r5partner == 1),] %>% select(r5ssupport6_log1p))
+# wave 5 ssupport missingness
+ss6<-vis_miss(Missingdata_wide[which(Missingdata_wide$r6partner == 1),] %>% select(r6ssupport6_log1p))
+
+(ss4 + ss5 + ss6)+
+  plot_annotation(
+    title = "Missingness in conditional variable `Marital strain` total score"
+  )
+
+
+Missingdata_wide %>% select(-r4ssupport6_log1p,-r5ssupport6_log1p,-r6ssupport6_log1p) %>% vis_miss()
+
+```
+
+## Defining variables type
+```{r}
+
+bin.vars<-  c(paste0("r",4:6,"work"),         # currently working (bl only)       (binary); incomp 
+              paste0("r",4:6,"partner"),      # having a partner (imp condition)  (binary); comp 
+              paste0("r",4:6,"smoken"),       # smoking (bl only)                 (binary); incomp
+              "ragender"                     # gender                            (binary); incomp
+        #      "raracem"                       # race                              (binary); comp
+              )
+
+ord.vars<-c(paste0("r",4:6,"PA_cat"),          # Physical Activity                (cat-ordinal); incomp
+#            paste0("r",4:6,"shlt"),           # self-reported health             (cat-ordinal); incomp
+            "raeduc_e",                        # education                        (cat-ordinal); incomp
+            paste0("r",4:6,"painchr_ext")
+            )        
+
+
+Missingdata_wide<-Missingdata_wide %>% mutate(
+                                ragender = case_when(
+                                          ragender == 1 ~ 0, # male
+                                          ragender == 2 ~ 1, # female
+                                          TRUE ~ NA_real_
+                                          )#,
+#                                raracem = case_when(
+#                                          raracem == 1 ~ 1, # white
+#                                          raracem == 4 ~ 0, #non-white
+#                                          TRUE ~ NA_real_
+#                                          ),
+                                )
+
+```
+## Variable type definition
+
+```{r}
+
+
+# categorical variables,# The first step is that all binary and categorical incomplete variables need to be stored as type “factor”;  @wijesuriya2025multiple
+
+
+Missingdata_wide<- Missingdata_wide %>% mutate(across(all_of(ord.vars), ~factor(., ordered = T)))
+
+Missingdata_wide<- Missingdata_wide %>% mutate(across(all_of(bin.vars), ~factor(.)))
+
+Missingdata_wide<-as.data.frame(Missingdata_wide)
+
+str(Missingdata_wide)
+
+```
+
+```{r}
+vars_time_invariant <- c("idauniq", "ragender", 
+                         #"raracem", 
+                         "raeduc_e","raagey")
+
+Missingdata_long <- Missingdata_wide %>%
+  pivot_longer(
+    cols = -all_of(vars_time_invariant),
+    names_to = c("wave", ".value"),
+     # Improved pattern that ensures we match the full variable name
+    names_pattern = "^r([456])(.+)$") %>%
+      # Convert wave to numeric if needed
+      mutate(wave = as.numeric(wave))
+
+```
+
+
+```{r missingness-overview, fig.width=12, fig.height=6}
+# Overall missingness heatmap
+vis_miss(Missingdata_long) +
+  labs(title = "Missingness map — long format (waves 4–6)",
+       caption = "Note: ssupport6_log1p includes structural missingness (partner==0 never collected by design); conditional plot follows.")
+```
+
+```{r missingness-by-variable, fig.width=8, fig.height=6}
+# ssupport6_log1p has structural missingness: partner==0 cases are never
+# collected and never imputed by design. Showing it alongside other variables
+# inflates its apparent % missing. Exclude it here; its conditional missingness
+# (among partner==1) is shown separately below.
+p1<-gg_miss_var(Missingdata_long %>% select(-ssupport6_log1p), show_pct = TRUE) +
+  labs(title = "% missing per variable (8014 subjects over 3 waves, tot N rows = 24042)")
+```
+
+```{r missingness-ssupport-conditional, fig.width=8, fig.height=3}
+# ssupport6_log1p: % missing among partner==1 only (the population for whom
+# it was collected)
+p2<-gg_miss_var(Missingdata_long %>% filter(partner == 1) %>% select(ssupport6_log1p),
+            show_pct = TRUE) +
+  labs(title = "% missing: partner support data(among partner==1 only, N rows = 17247)")
+
+
+p1 / p2 +
+  plot_layout(heights = c(15, 1)) +
+  plot_annotation(
+    caption = "* ssupport6_log1p shown among partner==1 only; structural missingness in partner==0 excluded by design"
+  )
+```
+
+```{r missingness-table}
+# For all variables except ssupport6: % missing over the full long dataset
+miss_general <- Missingdata_long %>%
+  select(-ssupport6_log1p) %>%
+  summarise(across(everything(), ~ round(mean(is.na(.)) * 100, 1))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "pct_missing") %>%
+  mutate(denominator = "all rows")
+
+# For ssupport6: % missing among partner==1 only
+miss_ss <- Missingdata_long %>%
+  filter(partner == 1) %>%
+  summarise(pct_missing = round(mean(is.na(ssupport6_log1p)) * 100, 1)) %>%
+  mutate(variable = "ssupport6_log1p", denominator = "partner==1 rows only")
+
+miss_tbl <- bind_rows(miss_general, miss_ss) %>%
+  arrange(desc(pct_missing)) %>%
+  filter(pct_missing > 0)
+
+knitr::kable(miss_tbl,
+             caption = "Variables with any missingness. ssupport6_log1p reported among partner==1 only (structural missingness for partner==0 is by design).")
+```
+
+```{r missingness-by-wave}
+# Missingness proportion per key analytic variable by wave.
+# ssupport6_log1p is computed among partner==1 rows only (structural
+# missingness for partner==0 is by design, not informative).
+key_vars_no_ss <- c("painchr_ext", "lvimp_shifted", "cesd_lat_shifted",
+                    "raeduc_e", "lnlys", "nettotw_bu_s_log", "MLTC", "partner")
+
+miss_wave <- Missingdata_long %>%
+  select(wave, all_of(intersect(key_vars_no_ss, names(Missingdata_long)))) %>%
+  group_by(wave) %>%
+  summarise(across(everything(), ~ round(mean(is.na(.)) * 100, 1)))
+
+miss_wave_ss <- Missingdata_long %>%
+  filter(partner == 1) %>%
+  group_by(wave) %>%
+  summarise(ssupport6_log1p = round(mean(is.na(ssupport6_log1p)) * 100, 1))
+
+miss_wave <- left_join(miss_wave, miss_wave_ss, by = "wave")
+
+knitr::kable(miss_wave,
+             caption = "% missing per wave for key analytic variables. ssupport6_log1p: among partner==1 only.")
+```
+
+---
+
+# Pre-imputation tests
+
+## Wave-by-Wave attrition
+
+```{r}
+miss_wave_long <- miss_wave %>%                                                                                                                       
+    pivot_longer(-wave, names_to = "variable", values_to = "pct_missing") %>%                                                                           
+    filter(variable %in% c(key_vars_no_ss,"ssupport6_log1p"))                                                                                   
+
+miss_wave_long<- miss_wave_long %>% mutate(
+  SCQ = case_when(variable %in% c("lnlys","ssupport6_log1p") ~ "SelfCompQ",
+                  TRUE ~ "Interview")
+)                                                                                                                   
+
+  ggplot(miss_wave_long, aes(x = wave, y = pct_missing, group = variable, colour = SCQ)) +
+    geom_line() + geom_point() +                                                                                         geom_label_repel(
+    data = . %>% filter(wave == max(wave)),
+    aes(label = variable),
+    size = 3, show.legend = FALSE
+    ) +
+    scale_x_continuous(breaks = c(4, 5, 6)) +                                                                   
+    labs(x = "Wave", y = "% missing",
+         title = "Missingness by wave — monotonic attrition check") +                                                                                   
+    theme_minimal()       
+```
+
+## predictors of missingness (MAR justification)
+
+Under MAR, missingness may depend on *observed* data but not on the
+missing values themselves. We assess this by fitting logistic regression
+models predicting the missingness indicator of each key variable from
+observed covariates. Significant predictors support MAR (missingness is
+explainable from observed data) rather than MCAR.
+
+Note: logistic models below are fitted on the long-format dataset (3 rows
+per person). Standard errors are not cluster-adjusted; this analysis is
+exploratory and is not reported in the paper.
+
+We focus on the two variables with the highest expected FMI:
+`ssupport6_log1p` (among partnered participants only, where imputation
+was attempted) and `painchr_ext`. `lvimp_shifted` was complete and
+requires no MAR assessment.
+
+```{r mar-helpers}
+# Returns a tidy logistic regression of R(missing) ~ predictors
+# Works on the raw (pre-imputation) data.
+missingness_logit <- function(data, outcome_var, predictor_vars) {
+  R <- as.integer(is.na(data[[outcome_var]]))
+  # Drop predictors that are themselves completely missing in this subset
+  available_preds <- predictor_vars[
+    sapply(predictor_vars, function(v) v %in% names(data) &&
+             mean(is.na(data[[v]])) < 1)
+  ]
+  fml <- as.formula(paste("R ~", paste(available_preds, collapse = " + ")))
+  fit <- glm(fml, data = data, family = binomial)
+  broom::tidy(fit, exponentiate = TRUE, conf.int = TRUE) %>%
+    filter(term != "(Intercept)") %>%
+    mutate(outcome = outcome_var, .before = 1)
+}
+```
+
+```{r mar-ssupport6}
+# ssupport6_log1p: restrict to partner==1 (not imputed for partner=0
+# by design; MAR question is whether, among partnered participants,
+# missingness is predicted by observed characteristics)
+preds_ss <- c("cesd_lat_shifted", "MLTC", "lnlys",
+              "nettotw_bu_s_log", "raagey", "ragender", "raeduc_e", "wave")
+
+mar_ss <- Missingdata_long %>%
+  filter(partner == 1) %>%
+  missingness_logit("ssupport6_log1p", preds_ss)
+
+knitr::kable(mar_ss %>% select(outcome, term, estimate, conf.low, conf.high, p.value) %>%
+               mutate(across(c(estimate, conf.low, conf.high), ~ round(.x, 2)),
+                      p.value = round(p.value, 3)),
+             caption = "Predictors of P(ssupport6_log1p missing) among partner==1 [OR, 95% CI]")
+```
+
+```{r mar-pain-lvimp}
+preds_out <- c("partner", "cesd_lat_shifted", "MLTC", "lnlys",
+               "nettotw_bu_s_log", "raagey", "ragender", "raeduc_e", "wave")
+
+mar_pain <- missingness_logit(Missingdata_long, "painchr_ext",  preds_out)
+
+knitr::kable(
+    mar_pain  %>%
+    select(outcome, term, estimate, conf.low, conf.high, p.value) %>%
+    mutate(across(c(estimate, conf.low, conf.high), ~ round(.x, 2)),
+           p.value = round(p.value, 3)),
+  caption = "Predictors of missingness for LTA outcome indicators (lv impact omitted as complete) [OR, 95% CI]"
+)
+```
+
+# Post-imputation: MAR diagnostic (Bondarenko & Raghunathan 2016)
+
+Under MAR, after fitting a good imputation model, the conditional
+distribution of imputed values should resemble the conditional
+distribution of observed values at similar missingness probabilities.
+We assess this using propensity score plots following van Buuren &
+Groothuis-Oudshoorn (2011).
+
+For each target variable:
+
+1. Fit a logistic model predicting its missingness from observed
+   covariates (predictors vary across imputations; missingness
+   indicator is constant).
+2. Average fitted propensity scores across M imputations.
+3. Plot imputed (filled) vs observed (open) values against propensity
+   score — similar distributions support MAR.
+
+```{r load-imputed}
+imp_1 <- readRDS(paste0(paper1_rds_path, "mice_imputationlong_VH.rds"))
+```
+
+```{r br-helpers}
+# propensity_scores(): fits P(variable missing) ~ observed predictors on each
+# completed dataset and returns per-row scores averaged over M imputations.
+# miss_indicator: full-length 0/1 vector (length = nrow(mids$data))
+# subset_rows:    integer index — restrict both predictors and R to these rows
+propensity_scores <- function(mids_obj, miss_indicator, predictor_vars,
+                               subset_rows = NULL) {
+  M   <- mids_obj$m
+  fml <- as.formula(paste("R ~", paste(predictor_vars, collapse = " + ")))
+
+  ps_mat <- sapply(seq_len(M), function(i) {
+    dat   <- mice::complete(mids_obj, i)
+    dat$R <- miss_indicator                                 # full-length assignment
+    if (!is.null(subset_rows)) dat <- dat[subset_rows, ]   # subset rows + R together
+    fit <- glm(fml, data = dat, family = binomial)
+    fitted.values(fit)
+  })
+
+  rowMeans(ps_mat)
+}
+
+# plot_br(): Bondarenko-Raghunathan diagnostic plot (ggplot2).
+# Stacks one completed dataset; colours observed (grey) vs imputed (orange).
+# ps: propensity score vector, length = number of rows used (full or subset).
+plot_br <- function(mids_obj, var, ps, title, subset_rows = NULL) {
+  orig <- mids_obj$data
+  imp  <- mice::complete(mids_obj, 1)   # single completed dataset is sufficient
+
+  if (!is.null(subset_rows)) {
+    orig <- orig[subset_rows, ]
+    imp  <- imp[subset_rows, ]
+  }
+
+  plot_dat <- data.frame(
+    value = imp[[var]],
+    ps    = ps,
+    type  = ifelse(is.na(orig[[var]]), "imputed", "observed")
+  )
+
+  ggplot(plot_dat, aes(x = ps, y = value, colour = type, shape = type)) +
+    geom_point(alpha = 0.4, size = 2.9) +
+    scale_colour_manual(values = c(observed = "darkgrey", imputed = "blue")) +
+    scale_shape_manual(values  = c(observed = 0, imputed = 19)) +
+    labs(x = "P(missing | observed covariates)", y = var,
+         title = title, colour = NULL, shape = NULL) +
+    theme_minimal()
+}
+```
+
+```{r br-painchr, fig.width=7, fig.height=4}
+R_pain <- as.integer(is.na(imp_1$data$painchr_ext))
+
+ps_pain <- propensity_scores(
+  imp_1,
+  miss_indicator = R_pain,
+  predictor_vars = c("partner", "cesd_lat_shifted", "MLTC", "lnlys",
+                     "nettotw_bu_s_log", "raagey", "ragender", "raeduc_e", "wave")
+)
+
+plot_br(imp_1, "painchr_ext", ps_pain,
+        title = "MAR diagnostic: painchr_ext")
+```
+
+Impact scores (`lvimp_shifted`) were complete — no propensity plot needed.
+
+```{r br-ssupport6, fig.width=7, fig.height=4}
+# ssupport6_log1p: restrict to partner==1 rows only
+partner1_rows <- which(imp_1$data$partner == 1)
+R_ss          <- as.integer(is.na(imp_1$data$ssupport6_log1p))
+
+ps_ss <- propensity_scores(
+  imp_1,
+  miss_indicator = R_ss,
+  predictor_vars = c("cesd_lat_shifted", "MLTC", "lnlys",
+                     "nettotw_bu_s_log", "raagey", "ragender", "raeduc_e", "wave"),
+  subset_rows    = partner1_rows
+)
+
+plot_br(imp_1, "ssupport6_log1p", ps_ss,
+        title = "MAR diagnostic: ssupport6_log1p (partner==1 only)",
+        subset_rows = partner1_rows)
+```
+
+---
+
+# Summary
+
+| Variable | Pre-imputation MAR evidence | Post-imputation B&R |
+|---|---|---|
+| `ssupport6_log1p` | See table above (partner==1 subset) | See plot above |
+| `painchr_ext` | See table above | See plot above |
+| `lvimp_shifted` | Complete — no missingness; MAR test not applicable | Complete — no propensity plot needed |
+
+Interpret plots: if MAR holds, filled (imputed) and open (observed)
+circles should overlap within propensity score bands, with no systematic
+vertical separation.
