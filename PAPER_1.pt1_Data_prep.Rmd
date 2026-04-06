@@ -726,7 +726,7 @@ H_elsa_w4_6 <- create_pain_locations_count(H_elsa_w4_6, "r6pain_locN", wave6_var
 
 ```
 
-### Compoasite Chronic pain state + location
+### Composite Chronic pain state + location
 
 0 NO PAIN
 1 ACUTE PAIN
