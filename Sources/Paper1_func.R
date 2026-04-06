@@ -563,7 +563,8 @@ Determine_state_ordering <- function(lmest_model, indicator_names = NULL, indica
       
       # we take (e.g.) pain impact categories as numbers in order of "severity"
       # NOTE: the same assumption of a monotonic order from low to high severity is assumed for both indicators
-      categories <- as.integer(names(psi))
+      categories <- suppressWarnings(as.integer(names(psi)))
+      if (any(is.na(categories))) stop(paste("Non-integer category names in indicator", i))
       # The observed categorical response for health impact are integers that go from (e.g.) 0 to 2, and those
       # of health impact go from 0 to 3. For both we compute the expected value of each level of categorical
       # variables. We do this multiplying the 4 ordered levels of impact (i.e. 0, 1, 2, 3) by their respective
@@ -838,6 +839,8 @@ get_observed_InitialStates_counts <- function(model) {
 }
 
 ## OBSERVED Transitions (decoded COUNTS)
+# hard assignment: It then counts how many people actually moved from state i to state
+# j across those crisp assignments. Transitions are treated as observed facts
 ##################################
 
 get_observed_transition_counts <- function(model, option = "global") {
@@ -872,6 +875,38 @@ get_observed_transition_counts <- function(model, option = "global") {
   
   return(transition_counts)
 }
+
+## TRANSITION PROBABILITIES (based on posterior probability)
+# uses soft assignment: model$PI[from, to, subject, time] contains the joint 
+# posterior probability P(U_t = u, U_{t-1} = ū | Y) — This is the probability 
+# that subject n made the transition from state ū to state u at time t, given all 
+# their observed responses. These probabilities are averaged across subjects and 
+# time points, then row-normalised. This is different from "decoded" ("observed") 
+# states where an "hard" assignment is  made to cristalise the state into the most probable one.
+##################################
+calc_transition_matrix_prob <- function(model) {
+  # Get dimensions
+  TT <- dim(model$PI)[4]
+  
+  # Calculate mean transition probabilities across subjects and time points
+  # Note: using time points 2:TT as specified in the plot function
+  PM <- round(apply(model$PI[, , , 2:TT], c(1, 2), mean), 3)
+  
+  # Normalize rows to sum to 1 using the same method as the plot function
+  PM <- round(diag(1/rowSums(PM)) %*% PM, 3)  # This is not just cosmetic. The raw averages of PI across 
+                                              # subjects and time don't necessarily sum to 1 per row 
+                                              # because PI captures joint probabilities integrated over 
+                                              # the posterior — the normalisation enforces the constraint 
+                                              # that transition probabilities out of each state sum to 1. 
+  
+  # Add row and column names
+  rownames(PM) <- paste("From State", 1:model$k)
+  colnames(PM) <- paste("To State", 1:model$k)
+  
+  return(PM)
+}
+
+
 
 ##################################
 ## INITIAL States regression Diagnostics
