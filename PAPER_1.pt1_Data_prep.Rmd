@@ -44,7 +44,7 @@ paper1_MODELS_rds_path<-"~/private_WP5/WP5_data/model_fits/"
 H_elsa_w1_9<-read.csv(paste0(clean_tab_path,"Hg3_w1_9_ALL.tab"), header=T)
 
 ################################################################################
-## IMPACT ESTIMATES  (Fscores from IRT)
+## IMPACT ESTIMATES  (Fscores from IRT) must run IMPACT_IRT_scoreExtraction.R
 ################################################################################
 impactw2_8<-readRDS(paste0(paper1_rds_path,"impactEstimates2-8_partialScalar.rds")) 
 
