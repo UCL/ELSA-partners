@@ -876,34 +876,254 @@ get_observed_transition_counts <- function(model, option = "global") {
   return(transition_counts)
 }
 
-## TRANSITION PROBABILITIES (based on posterior probability)
-# uses soft assignment: model$PI[from, to, subject, time] contains the joint 
-# posterior probability P(U_t = u, U_{t-1} = ū | Y) — This is the probability 
-# that subject n made the transition from state ū to state u at time t, given all 
-# their observed responses. These probabilities are averaged across subjects and 
-# time points, then row-normalised. This is different from "decoded" ("observed") 
-# states where an "hard" assignment is  made to cristalise the state into the most probable one.
+## TRANSITION PROBABILITIES (based on model-implied conditional)
+# model$PI[from, to, subject, time] stores the MODEL-IMPLIED CONDITIONAL
+# P(U_t = j | U_{t-1} = i, X_n), computed by prob_multilogit() from covariates.
+# Rows over 'to' sum to 1 for each (from, subject, time) by construction.
+# NOTE: This is NOT the smoothed posterior P(U_t=j | U_{t-1}=i, Y_n) — it does
+# not condition on each subject's observed responses Y_n directly. The true
+# smoothed posteriors live in prob_post_cov()$V (see get_posterior_V below).
+# Averaging PI[i,j,n,t] over subjects gives the mean model-implied transition
+# probability for each (from, to) pair, marginalising over the covariate
+# distribution in the sample. Row-normalisation corrects minor floating-point
+# drift; rows should already sum to ~1.
 ##################################
 calc_transition_matrix_prob <- function(model) {
-  # Get dimensions
   TT <- dim(model$PI)[4]
-  
-  # Calculate mean transition probabilities across subjects and time points
-  # Note: using time points 2:TT as specified in the plot function
+
+  # Average model-implied conditional P(U_t=j | U_{t-1}=i, X_n) over subjects
+  # and time points 2:TT, yielding a k×k mean transition matrix
   PM <- round(apply(model$PI[, , , 2:TT], c(1, 2), mean), 3)
-  
-  # Normalize rows to sum to 1 using the same method as the plot function
-  PM <- round(diag(1/rowSums(PM)) %*% PM, 3)  # This is not just cosmetic. The raw averages of PI across 
-                                              # subjects and time don't necessarily sum to 1 per row 
-                                              # because PI captures joint probabilities integrated over 
-                                              # the posterior — the normalisation enforces the constraint 
-                                              # that transition probabilities out of each state sum to 1. 
-  
-  # Add row and column names
+
+  # Row-normalise to enforce exact row-sum = 1 (corrects floating-point drift)
+  PM <- round(diag(1/rowSums(PM)) %*% PM, 3)
+
   rownames(PM) <- paste("From State", 1:model$k)
-  colnames(PM) <- paste("To State", 1:model$k)
-  
+  colnames(PM) <- paste("To State",   1:model$k)
+
   return(PM)
+}
+
+
+################################################################################
+## LTA MODEL DIAGNOSTICS — SMOOTHED POSTERIOR RECOVERY AND QUALITY METRICS
+##
+## Background: what model$PI actually stores
+## -----------------------------------------
+## A fitted LMlatent object (from lmest() / lmcovlatent()) exposes:
+##
+##   model$Piv  [n × k]          Subject-specific initial-state probabilities
+##                                P(U_1 = j | X_n), from prob_multilogit on Be.
+##                                These ARE conditioned on Y_n (via EM), but only
+##                                at wave 1.
+##
+##   model$PI   [k × k × n × TT] model$PI[i, j, n, t] = P(U_t = j | U_{t-1} = i, X_n)
+##                                the MODEL-IMPLIED CONDITIONAL transition prob,
+##                                from prob_multilogit on Ga. Rows over j sum to 1
+##                                for each (i, n, t) by construction. This is NOT
+##                                the smoothed posterior — it conditions on covariates
+##                                X_n only, not on the subject's observed responses Y_n.
+##                                Time t=1 is a placeholder (all zeros).
+##
+## The true smoothed marginal posterior P(U_t = j | Y_n) — the quantity you want
+## for entropy/APP/classification error — lives in the internal array V computed
+## by prob_post_cov() inside the forward-backward algorithm. lmestDecoding()
+## computes V to build Ul (decoded states) but discards V before returning.
+## See: https://github.com/cran/LMest/blob/master/R/lmestDecoding.R
+##
+## get_posterior_V() recovers V by replaying the lmestDecoding.LMlatent
+## preamble (data extraction, formula parsing, long→wide reshape) and then
+## running the same lk_comp_latent → prob_post_cov call sequence, returning
+## both V and a consistent Ul derived from it.
+##
+## Why not use model$Piv + Chapman-Kolmogorov via model$PI?
+## ---------------------------------------------------------
+## The naive forward-propagation:
+##   post_t2[n,] = Piv[n,] %*% PI[,,n,2]
+## gives the PRIOR PREDICTIVE P(U_2 = j | X_n), not the posterior P(U_2 = j | Y_n).
+## For subjects with clear observed trajectories the two diverge substantially.
+## Entropy computed from prior predictives is attenuated toward the marginal class
+## proportions and will misrepresent the true state separation.
+################################################################################
+
+# get_posterior_V: recover smoothed marginal posteriors V from a fitted LMlatent
+# ------------------------------------------------------------------------------
+# Replicates the internal preamble of lmestDecoding.LMlatent exactly, then runs
+# the full forward-backward pass to obtain V[n, k, TT] = P(U_t = j | Y_n).
+# Also returns Ul (n × TT decoded state matrix) computed directly from V, so
+# decoded assignments and posterior probabilities are from the same FB pass.
+#
+# Source reference (lmestDecoding.LMlatent preamble + internal call sequence):
+#   https://github.com/cran/LMest/blob/master/R/lmestDecoding.R
+#
+# Internal functions used (via :::, not exported by LMest):
+#   LMest:::getResponses         — extracts response matrix Y from data + formula
+#   LMest:::getLatent            — extracts Xinitial, Xtrans from latent formula
+#   LMest:::long2matrices.internal — reshapes long-format data to wide (n × TT)
+#   LMest:::lk_comp_latent       — forward pass: computes log-likelihood components
+#                                   Phi (emission), L (forward probs), pv (scaling)
+#   LMest:::prob_post_cov        — forward-backward smoother: returns V, U, etc.
+#
+# FRAGILITY NOTE: depends on unexported LMest internals. Tested on LMest 2.1.x.
+# Verify function signatures after any LMest package update.
+#
+# Args:
+#   model  — a fitted LMlatent object (output of lmest() with covariates)
+#
+# Returns: list with
+#   V   [n × k × TT]  smoothed marginal posterior P(U_t = j | Y_n)
+#   Ul  [n × TT]      decoded states: Ul[n,t] = argmax_j V[n,j,t]
+get_posterior_V <- function(model) {
+
+  stopifnot(inherits(model, "LMlatent"))
+
+  # ------------------------------------------------------------------
+  # Step 1: replicate lmestDecoding.LMlatent data-extraction preamble
+  # (lines ~20-80 of lmestDecoding.R)
+  # ------------------------------------------------------------------
+  newdata  <- model$data
+  id       <- attributes(model)$id
+  tv       <- attributes(model)$time
+  tv.which <- attributes(model)$whichtv
+  id.which <- attributes(model)$whichid
+  data.new <- newdata[, -c(tv.which, id.which), drop = FALSE]
+
+  # Extract response matrix Y (items × waves) from the responses formula
+  temp <- LMest:::getResponses(
+    data    = data.new,
+    formula = attributes(model)$responsesFormula
+  )
+  Y <- temp$Y
+
+  # Extract covariate matrices for initial-state and transition components
+  temp2 <- LMest:::getLatent(
+    data      = data.new,
+    responses = attributes(model)$responsesFormula,
+    latent    = attributes(model)$latentFormula
+  )
+  Xinitial <- temp2$Xinitial
+  Xtrans   <- temp2$Xtrans
+
+  # Reshape from long (n_obs × p) to wide (n_subjects × TT × p)
+  tmp <- LMest:::long2matrices.internal(
+    Y         = Y,
+    id        = id,
+    time      = tv,
+    yv        = rep(1, max(id)),
+    Xinitial  = Xinitial,
+    Xmanifest = NULL,
+    Xtrans    = Xtrans
+  )
+  Y <- tmp$Y   # now [n × TT × n_items]
+
+  # Handle missingness: build binary mask R and zero-fill Y in-place
+  # (lmest internally treats missing items as non-informative via R)
+  miss <- any(is.na(Y))
+  R    <- if (miss) {
+    M <- 1L * (!is.na(Y))
+    Y[is.na(Y)] <- 0L
+    M
+  } else NULL
+
+  n  <- dim(Y)[1]
+  TT <- dim(Y)[2]
+  k  <- model$k
+  Psi <- model$Psi   # emission parameters [n_categories × k × n_items]
+  Piv <- model$Piv   # [n × k] subject-specific initial probs from covariates
+  PI  <- model$PI    # [k × k × n × TT] model-implied conditionals
+
+  # ------------------------------------------------------------------
+  # Step 2: forward pass
+  # lk_comp_latent runs the forward algorithm and returns:
+  #   Phi [n × k × TT]  emission probabilities P(Y_t | U_t = j)
+  #   L   [n × k × TT]  scaled forward probabilities α_t(j)
+  #   pv  [n × TT]      per-subject per-wave scaling constants
+  # ------------------------------------------------------------------
+  out_lk <- LMest:::lk_comp_latent(
+    Y, R, rep(1, n), Piv, PI, Psi, k, fort = TRUE
+  )
+
+  # ------------------------------------------------------------------
+  # Step 3: forward-backward smoother
+  # prob_post_cov runs the backward pass and combines with forward probs to give:
+  #   V  [n × k × TT]   smoothed marginal: V[n, j, t] = P(U_t = j | Y_n)
+  #   U  [k × k × n × TT]  smoothed joint:  U[i,j,n,t] = P(U_{t-1}=i, U_t=j | Y_n)
+  #                         (this is the quantity used in the M-step, NOT model$PI)
+  # ------------------------------------------------------------------
+  out_fb <- LMest:::prob_post_cov(
+    Y, rep(1, n), Psi, Piv, PI,
+    out_lk$Phi, out_lk$L, out_lk$pv,
+    fort = TRUE
+  )
+
+  V <- out_fb$V   # [n × k × TT] — this is what lmestDecoding computes but discards
+
+  # Reconstruct Ul from V (mirrors the decoder inside lmestDecoding.LMlatent)
+  # Using which.max per subject per wave ensures Ul is consistent with V
+  Ul <- matrix(0L, n, TT)
+  for (i in seq_len(n)) for (t in seq_len(TT)) Ul[i, t] <- which.max(V[i, , t])
+
+  list(V = V, Ul = Ul)
+}
+
+
+# diagnose_model: entropy, APP, and classification error from smoothed posteriors
+# ------------------------------------------------------------------------------
+# Standard LTA model-quality metrics (Nylund-Gibson & Choi 2018):
+#
+#   Entropy  = 1 + Σ p·log(p) / (N·log(k))        ranges [0, 1], higher = sharper
+#   Class err = 1 − mean(max posterior per row)     ranges [0, 1], lower = sharper
+#   APP_s    = mean P(U_t=s | Y_n) for all (n,t) where argmax = s
+#
+# All three metrics are computed across ALL TT=3 waves by stacking V[,,1],
+# V[,,2], V[,,3] into a 3n×k matrix. Using all waves rather than wave 1 only
+# gives unbiased estimates: wave-1 posteriors are sharpest (initialisation);
+# waves 2-3 are more diffuse as uncertainty accumulates, and ignoring them
+# produces optimistically inflated entropy and APP.
+#
+# Decoded assignments (Ul) come from get_posterior_V() and are guaranteed
+# consistent with V — both derive from the same forward-backward pass.
+#
+# Args:
+#   model  — fitted LMlatent object
+#   label  — character string for printed header
+#
+# Returns (invisibly): list(entropy, class_err, app)
+diagnose_model <- function(model, label) {
+
+  fb          <- get_posterior_V(model)
+  V           <- fb$V              # [n × k × TT]
+  all_decoded <- as.vector(fb$Ul)  # n×TT matrix, column-major → 3n vector
+                                   # order: all t=1 first, then t=2, then t=3
+
+  # Stack all TT waves: V[,,t] is n×k; rbind gives 3n×k in same t-order as Ul
+  all_posts <- do.call(rbind, lapply(seq_len(dim(V)[3]), function(t) V[, , t]))
+
+  k   <- model$k
+  eps <- 1e-10   # prevent log(0); negligible effect on probabilities near 0
+
+  # APP: for each state s, mean posterior among (subject × wave) observations
+  # whose modal class is s. Values should be well above 1/k (= 0.25 here).
+  app <- sapply(seq_len(k), function(s) {
+    in_s <- which(all_decoded == s)
+    if (length(in_s) == 0) return(NA)
+    mean(all_posts[in_s, s])
+  })
+
+  # Classification error: mean proportion of posterior mass NOT on modal class
+  class_err <- round(1 - mean(apply(all_posts, 1, max)), 3)
+
+  # Entropy: normalised information content; 1 = perfectly sharp, 0 = uniform
+  entropy_val <- 1 + sum(all_posts * log(all_posts + eps)) /
+                     (nrow(all_posts) * log(k))
+
+  cat(sprintf("\n--- %s diagnostics (3-wave smoothed posteriors) ---\n", label))
+  cat(sprintf("Entropy:            %.3f  (>0.80 preferred)\n", entropy_val))
+  cat(sprintf("Classification err: %.3f  (<0.30 preferred)\n", class_err))
+  cat(sprintf("APP per state:      %s\n",
+              paste(round(app, 3), collapse = " | ")))
+
+  invisible(list(entropy = entropy_val, class_err = class_err, app = app))
 }
 
 
@@ -1448,365 +1668,6 @@ lmestSearch_plot <- function(all_lks, k = 4, k_multiplier = 3, plot_hist = TRUE)
 ################ END OF LMEST SEARCH DIAGNOSTIC FUNCTION
 ################################################################################
 
-
-################################################################################
-################ BEGINNING OF LMEST PARALLEL FUNCTION
-################################################################################
-run_LMEST_models_parallel <- function(model_configs, 
-                                      log_path, save_path, data,
-                                      n_cores = 4, # max number of cores to use (lmest can only run one lmest command X core)
-                                      modBasic = 1, paramLatent = "multilogit", start = 0, maxit = 1000, ntry = 1, k = 4, tol = 10^-8, fort = F,
-                                      stability_tol = 1, # this is the comparison parameter for multiply tries' lk
-                                      out_SE = F,
-                                      save_models = TRUE) {
-  
-  # Create log file
-  log_file <- paste0(log_path,"lmest_models_log_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".txt")
-  
-  # Function to log messages
-  log_message <- function(message, model_name = "GENERAL") {
-    timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-    log_entry <- paste0("[", timestamp, "] [", model_name, "] ", message, "\n")
-    cat(log_entry)
-    cat(log_entry, file = log_file, append = TRUE)
-  }
-  
-  log_message("=== STARTING PARALLEL LMEST MODEL EXECUTION ===")
-  log_message(paste("Log file:", log_file))
-  log_message(paste("Number of available cores:", detectCores()))
-  
-  # Function to run individual model with comprehensive logging
-  run_single_model <- function(config) {
-    model_name <- config$name
-    warnings_list <- character(0)
-    messages_list <- character(0)
-    
-    # Create model-specific log function
-    model_log <- function(msg) {
-      timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-      log_entry <- paste0("[", timestamp, "] [", model_name, "] ", msg, "\n")
-      cat(log_entry)
-      return(log_entry)
-    }
-    
-    model_log("Starting model execution...")
-    start_time <- Sys.time()
-    
-    result <- tryCatch({
-      withCallingHandlers({
-        # Initialize LL tracking
-        ll_runs <- list()
-        parse_counter <- 0
-        
-        model_log("Calling lmest function...")
-        
-        # Capture lmest output for LL parsing
-        capture_start_time <- Sys.time()
-        out_lines <- capture.output({
-          model_result <- lmest(
-            responsesFormula = eval(config$responsesFormula),
-            latentFormula = eval(config$latentFormula),
-            index = c("idauniq","time"),
-            modBasic = modBasic,
-            data = data,
-            paramLatent = "multilogit",
-            start = start,
-            fort = fort,
-            seed = 200720,
-            maxit = maxit,
-            ntry = ntry,
-            k = k,
-            output = TRUE,
-            tol = tol,
-            out_se = out_SE
-          )
-        })
-        
-        # Parse LL values from captured output
-        current_start <- 0
-        current_type <- ""
-        for (line in out_lines) {
-          # Detect initialization headers
-          if (grepl("\\* Deterministic", line)) {
-            current_start <- 0
-            current_type <- "deterministic"
-          } else if (grepl("\\* Random initialization \\(([0-9]+)/([0-9]+)\\)", line)) {
-            matches <- regmatches(line, regexpr("\\(([0-9]+)/([0-9]+)\\)", line))
-            current_start <- as.numeric(gsub("[^0-9]", "", strsplit(matches, "/")[[1]][1]))
-            current_type <- "random"
-          }
-          
-          # Extract final LL from iteration lines
-          if (grepl("^\\s*4\\s*\\|\\s*[01]\\s*\\|", line) && current_type != "") {
-            parts <- strsplit(trimws(line), "\\|")[[1]]
-            if (length(parts) >= 4) {
-              step_val <- as.numeric(trimws(parts[3]))
-              lk_val <- as.numeric(trimws(parts[4]))
-              
-              if (!is.na(step_val) && !is.na(lk_val)) {
-                # Update or add this start's final LL
-                start_key <- paste0(current_type, "_", current_start)
-                ll_runs[[start_key]] <- list(
-                  start_id = current_start,
-                  init_type = current_type, 
-                  final_ll = lk_val,
-                  final_step = step_val,
-                  elapsed_sec = as.numeric(difftime(Sys.time(), capture_start_time, units = "secs"))
-                )
-              }
-            }
-          }
-        }
-        
-        # Convert to data frame and compute replication summary
-        if (length(ll_runs) > 0) {
-          ll_runs_df <- do.call(rbind, lapply(ll_runs, data.frame))
-          
-          max_ll <- max(ll_runs_df$final_ll, na.rm = TRUE)
-          ll_diffs <- max_ll - ll_runs_df$final_ll
-          median_diff <- median(ll_diffs, na.rm = TRUE)
-          mad_diff <- mad(ll_diffs, constant = 1, na.rm = TRUE) # constant = 1 for Raw median absolute deviation
-          # Cutoff calculation
-          # Define cutoff as median + 3 * MAD [https://pmc.ncbi.nlm.nih.gov/articles/PMC8801745/] 
-          # "For example, Miller (1991) recommends using 2, 2.5, or 3 as the value k, depending on 
-          # the purpose of outlier detection, while Leys et al. (2013) recommend a criterion of 2.5 as the value k"
-          cutoff_tol <- median_diff + 3 * mad_diff
-          
-          model_log(sprintf("LL differences: median=%.4f, MAD=%.4f, observed stability for ll <=%.4f",
-                            median_diff, mad_diff, cutoff_tol))
-          
-          abs_diff <- abs(ll_diffs)
-          filtered_diffs <- ll_diffs[abs_diff <= cutoff_tol]
-          dropped_diffs <- ll_diffs[abs_diff > cutoff_tol]
-          drop_ratio <- length(dropped_diffs) / length(abs_diff)
-          
-          n_at_max <- sum(ll_diffs <= stability_tol, na.rm = TRUE)
-          n_starts <- nrow(ll_runs_df)
-          replication_ok <- n_at_max >= 2
-          
-          # Plot histogram (optional)
-          plot_df <- data.frame(lldiff = ll_diffs)
-          library(ggplot2)
-          p1 <- ggplot(plot_df, aes(x = lldiff)) +
-            geom_histogram(bins = 30, fill = "skyblue", color = "black")+
-            labs(title = paste0("Histogram of LL differences for model", model_name),
-                 x = "Log-likelihood difference from max",
-                 y = "Count",
-                 caption = paste0("\n Drop ratio: ", round(drop_ratio, 3))
-            ) 
-          
-          p2 <- ggplot(plot_df%>%filter(lldiff>=cutoff_tol), aes(x = lldiff)) +
-            geom_histogram(bins = 30, fill = "skyblue", color = "black")+
-            labs(title = paste0("Histogram of LL differences for model", model_name, "Filtered by ll_diff < (median_diff + 3*MAD_diff)"),
-                 x = "Log-likelihood difference from max",
-                 y = "Count",
-                 caption = paste0("\n Drop ratio: ", round(drop_ratio, 3))
-            )
-          
-          #ggsave(filename = paste0("LL_diffs_histogram_", model_name, ".png"), plot = p, width = 7, height = 5)
-          
-          ll_replication <- list(
-            max_ll = max_ll,
-            n_at_max = n_at_max,
-            n_starts = n_starts,
-            stability_tol = stability_tol,
-            replication_ok = replication_ok,
-            median_diff = median_diff,
-            mad_diff = mad_diff
-          )
-          
-          # Log replication summary
-          model_log(sprintf("LL replication: max = %.4f, matched in %d/%d starts (stability_tol=%.4f)", 
-                            max_ll, n_at_max, n_starts, stability_tol))
-          
-          # More informative status based on replication pattern
-          if (n_at_max >= max(2, ceiling(n_starts * 0.6))) {
-            model_log(sprintf("Convergence quality: High consistency (%d%% of starts reached maximum)", 
-                              round(100 * n_at_max / n_starts)))
-          } else if (n_at_max >= 2) {
-            model_log(sprintf("Convergence quality: Moderate consistency (%d starts reached maximum, others may be local optima)", 
-                              n_at_max))
-          } else {
-            model_log(sprintf("Convergence quality: Low consistency (only %d start reached maximum, consider increasing ntry)", 
-                              n_at_max))
-          }
-          
-          # Add range information if there's variation
-          ll_range <- max(ll_runs_df$final_ll) - min(ll_runs_df$final_ll)
-          if (ll_range > stability_tol) {
-            model_log(sprintf("LL range across starts: %.6f", ll_range))
-          }
-        } else {
-          ll_runs_df <- NULL
-          ll_replication <- NULL
-          model_log("Warning: Could not parse LL replication data")
-        }
-        
-        end_time <- Sys.time()
-        duration <- difftime(end_time, start_time, units = "mins")
-        model_log(paste("Model completed successfully in", round(duration, 2), "minutes"))
-        
-        # Log model summary information
-        model_log(paste("Description:", config$description))
-        if (!is.null(model_result$lk)) {
-          model_log(paste("Log-likelihood:", round(model_result$lk, 4)))
-        }
-        if (!is.null(model_result$aic)) {
-          model_log(paste("AIC:", round(model_result$aic, 4)))
-        }
-        if (!is.null(model_result$bic)) {
-          model_log(paste("BIC:", round(model_result$bic, 4)))
-        }
-        if (!is.null(model_result$np)) {
-          model_log(paste("Number of parameters:", model_result$np))
-        }
-        
-        # Save model immediately upon successful completion (not at the end)
-        # this part operates within each model in the list of models run
-        if (!is.null(model_result) && save_models && !is.null(config$save_FULLpath)) {
-          tryCatch({
-            # Save with timestamp to avoid conflicts
-            timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
-            # gsub replace the pattern "\\.rds$" with the timestamp to create a time-based copy
-            save_path_timestamped <- gsub("\\.rds$", paste0("_", timestamp_suffix, ".rds"), config$save_FULLpath)
-            
-            saveRDS(model_result, save_path_timestamped)
-            model_log(paste("IMMEDIATELY SAVED to:", save_path_timestamped))
-            
-            # Also save to original path (overwrite old version)
-            saveRDS(model_result, config$save_FULLpath)
-            model_log(paste("Also saved to original path:", config$save_FULLpath))
-            
-          }, error = function(save_err) {
-            model_log(paste("SAVE ERROR:", save_err$message))
-          })
-        }
-        
-      }, warning = function(w) {
-        warning_msg <- paste("WARNING:", w$message)
-        warnings_list <<- c(warnings_list, warning_msg)
-        model_log(warning_msg)
-        invokeRestart("muffleWarning")
-      }, message = function(m) {
-        message_msg <- paste("MESSAGE:", m$message)
-        messages_list <<- c(messages_list, message_msg)
-        model_log(message_msg)
-        invokeRestart("muffleMessage")
-      })
-      
-    }, error = function(e) {
-      end_time <- Sys.time()
-      duration <- difftime(end_time, start_time, units = "mins")
-      error_msg <- paste("ERROR after", round(duration, 2), "minutes:", e$message)
-      model_log(error_msg)
-      return(NULL)
-    })
-    
-    return(list(
-      model = result,
-      name = model_name,
-      config = config,
-      warnings = warnings_list,
-      messages = messages_list,
-      duration = difftime(Sys.time(), start_time, units = "mins"),
-      ll_runs = ll_runs_df,           
-      ll_replication = ll_replication,
-      rep_plot = p1, # replication lot of ll diffs
-      rep_plot_filtered = p2
-    ))
-  }
-  
-  # Limit to n_cores = 4 workers for stability and memory management
-  max_workers <- min(n_cores, length(model_configs), detectCores() - 1)
-  log_message("Setting up future parallel processing...")
-  log_message(paste("Available cores:", detectCores(), "- Using max", max_workers, "workers"))
-  plan(multisession, workers = max_workers)
-  
-  log_message(paste("Running", length(model_configs), "models in parallel..."))
-  overall_start_time <- Sys.time()
-  
-  # Run all models in parallel using future
-  model_results <- future_lapply(model_configs, run_single_model, 
-                                 future.seed = TRUE)
-  overall_end_time <- Sys.time()
-  total_duration <- difftime(overall_end_time, overall_start_time, units = "mins")
-  
-  log_message(paste("=== ALL MODELS COMPLETED ==="))
-  log_message(paste("Total execution time:", round(total_duration, 2), "minutes"))
-  
-  # Process results and create summary
-  successful_models <- list() ## preparing the empty list of model summaries
-  failed_models <- character(0) ## preparing the counter of failed models
-  
-  log_message("\n=== EXECUTION SUMMARY ===")
-  
-  for (i in seq_along(model_results)) {
-    result <- model_results[[i]]
-    model_name <- result$name
-    
-    log_message(paste("\n--- Model:", model_name, "---"))
-    log_message(paste("Duration:", round(result$duration, 2), "minutes"))
-    
-    if (!is.null(result$model)) {
-      log_message("Status: ✓ SUCCESS")
-      successful_models[[model_name]] <- result
-    } else {
-      log_message("Status: ✗ FAILED")
-      failed_models <- c(failed_models, model_name)
-    }
-    
-    # Log warnings
-    if (length(result$warnings) > 0) {
-      log_message(paste("Warnings (", length(result$warnings), "):"))
-      for (w in result$warnings) {
-        log_message(paste("  -", w))
-      }
-    } else {
-      log_message("Warnings: None")
-    }
-    
-    # Log messages  
-    if (length(result$messages) > 0) {
-      log_message(paste("Messages (", length(result$messages), "):"))
-      for (m in result$messages) {
-        log_message(paste("  -", m))
-      }
-    }
-    # Log replication summary in main summary
-    if (!is.null(result$ll_replication)) {
-      rep_sum <- result$ll_replication
-      log_message(sprintf("  LL Replication: %d/%d starts reached max (%.4f)", 
-                          rep_sum$n_at_max, rep_sum$n_starts, rep_sum$max_ll))
-    }
-  }
-  
-  # Final summary
-  log_message(paste("\n=== FINAL SUMMARY ==="))
-  log_message(paste("Successful models:", length(successful_models)))
-  log_message(paste("Failed models:", length(failed_models)))
-  
-  if (length(failed_models) > 0) {
-    log_message(paste("Failed model names:", paste(failed_models, collapse = ", ")))
-  }
-  
-  log_message(paste("Log saved to:", log_file))
-  
-  # Clean up
-  plan(sequential)
-  
-  # Return results
-  return(list(
-    models = successful_models,
-    failed_models = failed_models,
-    log_file = log_file,
-    total_duration = total_duration
-  ))
-}
-
-
-################################################################################
-################ END OF LMEST PARALLEL FUNCTION
-################################################################################
 run_lmest_parallel_seeds <- function(config, data, n_reps = 200, ntry = 1, n_cores = 8,
                                      modBasic = 1, start = 1, maxit = 10000, k = 4, 
                                      tol = 1e-8, fort = TRUE, out_SE = FALSE,
