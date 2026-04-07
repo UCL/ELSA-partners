@@ -283,7 +283,7 @@ The log-likelihood difference histograms describe convergence behavior across ca
 
 Key parameters for `lmest()`:
 
-- **`modBasic = 1`**: Time-homogeneous transition probabilities (the latent Markov chain is time invariant). Alternative: `modBasic = 0` allows time-dependent transitions.
+- **`modBasic = 1`**: Assumes the transition process is stationary across the two inter-wave intervals — i.e. the probabilities governing state-to-state moves are the same at waves 4→5 and 5→6. This is justified by the structural equivalence of the two intervals (identical measurement instrument, ~2 year gap each) and the absence of any known mechanism that would alter the pain transition process within this narrow observation window. `modBasic = 0` would allow time-heterogeneous transitions but adds 16 free parameters (a second full transition matrix) without substantive basis.
 - **`start = 1`**: Random starting values. `start = 0` = deterministic only; `start = 2` = user-supplied initial values (used for rebasing).
 - **`ntry`**: Number of random initializations. With `k = 4` and `ntry = 5`, each `lmest()` call runs 1 deterministic + 5×4 = 20 random starts.
 - **`fort = TRUE`**: Use Fortran routines where available (faster).
@@ -448,38 +448,10 @@ DirectEffects_rebased <- rebase_and_refit_lmest(
 ## Model diagnostics
 
 ```{r}
-diagnose_model <- function(model, label) {
-  dec  <- lmestDecoding(model)
-  Ul   <- dec$Ul   # local decoding: n_subjects × n_timepoints
-
-  k    <- model$k
-  # Average posterior probability per state (APP): diagonal of
-  # mean posterior matrix — how well-separated are states
-  post <- model$Piv  # n_subjects × k (time 1); use model$Piv for marginal
-  # Use posterior from PI (joint) if available, else Piv
-  app  <- sapply(1:k, function(s) {
-    in_s <- which(Ul[, 1] == s)
-    if (length(in_s) == 0) return(NA)
-    mean(model$Piv[in_s, s])
-  })
-
-  # Classification error = 1 - mean(max posterior per subject)
-  max_post   <- apply(model$Piv, 1, max)
-  class_err  <- round(1 - mean(max_post), 3)
-
-  # Entropy = 1 + sum(p * log(p)) / (n * log(k))
-  eps        <- 1e-10
-  entropy_val <- 1 + sum(model$Piv * log(model$Piv + eps)) /
-                     (nrow(model$Piv) * log(k))
-
-  cat(sprintf("\n--- %s diagnostics ---\n", label))
-  cat(sprintf("Entropy:            %.3f  (>0.80 preferred)\n", entropy_val))
-  cat(sprintf("Classification err: %.3f  (<0.30 preferred)\n", class_err))
-  cat(sprintf("APP per state:      %s\n",
-              paste(round(app, 3), collapse = " | ")))
-
-  invisible(list(entropy = entropy_val, class_err = class_err, app = app))
-}
+# get_posterior_V() and diagnose_model() are defined in Sources/Paper1_func.R.
+# See that file for full documentation of model$PI vs smoothed posteriors V,
+# the forward-backward call sequence, and the LMest source reference:
+#   https://github.com/cran/LMest/blob/master/R/lmestDecoding.R
 
 diag_TE <- diagnose_model(TotalEffects_rebased, "TE")
 diag_DE <- diagnose_model(DirectEffects_rebased, "DE")
@@ -535,17 +507,17 @@ A large positive LRT statistic (DE vs TE) indicates the DE model significantly i
 
 # Sensitivity analysis: nested models without exposure block
 
-# The noExp models remove ssupport6_cat from the TE specification to test whether
-# the exposure block adds significant explanatory power. Two nested models:
-#   - TE_noEXP_init:  ssupport6_cat removed from INITIAL probabilities only
-#   - TE_noEXP_trans: ssupport6_cat removed from TRANSITION probabilities only
-#
-# LRT (TE vs TE_noEXP) tests the null that partnership status has no effect on
-# initial state membership / transitions respectively.
-#
-# Run on a single imputation (imp=1, same LTAdata_long as main models).
-# Single-imputation LRT is sufficient for sensitivity purposes — the exposure
-# block significance is expected to be robust across imputations.
+The noExp models remove ssupport6_cat from the TE specification to test whether
+the exposure block adds significant explanatory power. Two nested models:
+   - TE_noEXP_init:  ssupport6_cat removed from INITIAL probabilities only
+   - TE_noEXP_trans: ssupport6_cat removed from TRANSITION probabilities only
+
+LRT (TE vs TE_noEXP) tests the null that partnership status has no effect on
+initial state membership / transitions respectively.
+
+Run on a single imputation (imp=1, same LTAdata_long as main models).
+Single-imputation LRT is sufficient for sensitivity purposes — the exposure
+block significance is expected to be robust across imputations.
 
 ```{r}
 ################################################################################
