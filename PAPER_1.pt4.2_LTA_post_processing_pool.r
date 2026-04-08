@@ -40,8 +40,8 @@ source("Sources/Paper1_func.R")
 # 2. PATHS
 # ==============================================================================
 
-rds_path    <- "~/private_WP5/WP5_data/rds/"
-models_path <- "~/private_WP5/WP5_data/model_fits/imputations/"
+rds_path    <- path.expand("~/private_WP5/WP5_data/rds/")
+models_path <- path.expand("~/private_WP5/WP5_data/model_fits/imputations/")
 
 n_imputations <- 22
 
@@ -247,6 +247,99 @@ check_state_ordering <- function(log_df, label) {
 
 check_state_ordering(state_order_log_TE, "TE")
 check_state_ordering(state_order_log_DE, "DE")
+
+
+# ==============================================================================
+# 7b. CONDITIONAL PROBABILITY GRID — all imputations
+# ==============================================================================
+# Visual consistency check: after state reordering, the conditional probability
+# profiles (P(Y_r = c | State s)) should be stable across imputations.
+# State 1 = healthiest (low lvimp, low painchr); State 4 = HICP.
+# Divergence across imputations signals instability in the measurement model.
+#
+# Psi[category, state, item]: dim [max_n_cat × k × n_items]
+#   item 1 = lvimp_shifted_cat3 (categories 0–2; 4th row = 0 by padding)
+#   item 2 = painchr_ext        (categories 0–3)
+# ==============================================================================
+
+plot_condprob_grid <- function(label, n_imp, models_path, state_order_log,
+                               item_names = c("lvimp_shifted_cat3", "painchr_ext")) {
+
+  psi_all <- map_dfr(seq_len(n_imp), function(i) {
+
+    f <- paste0(models_path, "raw_results_", label, "_imp", i, ".rds")
+    if (!file.exists(f)) {
+      warning(sprintf("Missing raw_results for %s imp %d — skipped", label, i))
+      return(NULL)
+    }
+
+    model <- readRDS(f)$best_model
+
+    # Retrieve state order for this imputation
+    state_ord <- state_order_log %>%
+      filter(imp == i) %>%
+      arrange(new_state) %>%
+      pull(orig_state)
+
+    Psi_reordered <- model$Psi[, state_ord, , drop = FALSE]  # [n_cat, k, n_items]
+
+    n_cat   <- dim(Psi_reordered)[1]
+    k       <- dim(Psi_reordered)[2]
+    n_items <- dim(Psi_reordered)[3]
+
+    expand.grid(
+      category = seq_len(n_cat) - 1L,   # 0-indexed to match variable coding
+      state    = seq_len(k),
+      item_idx = seq_len(n_items)
+    ) %>%
+      mutate(
+        prob = as.vector(Psi_reordered),
+        item = item_names[item_idx],
+        imp  = i
+      ) %>%
+      filter(prob > 0)   # drop padding rows (lvimp has 3 cats, padded to 4)
+  })
+
+  # Facet: columns = state, rows = imputation; separate panel per item via colour
+  p <- psi_all %>%
+    mutate(
+      state_lab = paste0("State ", state),
+      cat_lab   = as.character(category)
+    ) %>%
+    ggplot(aes(x = cat_lab, y = prob, fill = item)) +
+    geom_col(position = "dodge") +
+    facet_grid(imp ~ state_lab, switch = "y") +
+    scale_fill_manual(
+      values = c("lvimp_shifted_cat3" = "#2166ac",
+                 "painchr_ext"        = "#d6604d"),
+      labels = c("lvimp_shifted_cat3" = "lvimp (0–2)",
+                 "painchr_ext"        = "painchr (0–3)"),
+      name   = "Indicator"
+    ) +
+    scale_y_continuous(breaks = c(0, 0.5, 1), limits = c(0, 1)) +
+    labs(
+      title = paste0(label, " — P(Y = c | State) across ", n_imp, " imputations"),
+      x     = "Category",
+      y     = "Probability"
+    ) +
+    theme_minimal(base_size = 7) +
+    theme(
+      strip.text.x     = element_text(size = 7, face = "bold"),
+      strip.text.y     = element_text(size = 6),
+      legend.position  = "bottom",
+      panel.spacing    = unit(0.15, "lines")
+    )
+
+  # Save to file (tall page to accommodate 22 rows)
+  out_path <- paste0(models_path, "CondProb_grid_", label, ".pdf")
+  ggsave(out_path, plot = p, width = 10, height = 55, limitsize = FALSE)
+  cat(sprintf("Saved: %s\n", out_path))
+
+  invisible(p)
+}
+
+condprob_TE <- plot_condprob_grid("TE", n_imputations, models_path, state_order_log_TE)
+condprob_DE <- plot_condprob_grid("DE", n_imputations, models_path, state_order_log_DE)
 
 
 # ==============================================================================
