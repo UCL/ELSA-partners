@@ -256,10 +256,10 @@ saveRDS(Lmest_search, paste0(paper1_MODELS_rds_path, "K-State_parametrisation_n4
 saveRDS(Lmest_search, paste0(paper1_MODELS_rds_path, "K-State_parametrisation_n400.rds"))
 ```
 
-```{r}
+```{r echo= FALSE}
 Lmest_search <- readRDS(paste0(paper1_MODELS_rds_path, "K-State_parametrisation_n400.rds"))
 Lmest_search %>% summary()
-Lmest_search$out.single[[3]] %>% plot(what = "CondProb")
+Lmest_search$out.single[[4]] %>% plot(what = "CondProb")
 
 state5_llDiffs <- lmestSearch_plot(Lmest_search$out.single, k = 5, k_multiplier = 3, plot_hist = TRUE)
 state4_llDiffs <- lmestSearch_plot(Lmest_search$out.single, k = 4, k_multiplier = 3, plot_hist = TRUE)
@@ -275,7 +275,7 @@ The log-likelihood difference histograms describe convergence behavior across ca
 
 - **k = 3**: Most runs find the global maximum or group in widely separated local optima (high median diff, multimodal plots). Poor stability.
 - **k = 5**: Substantial variability and multiple peaks. High median absolute difference. Less reliable estimation.
-- **k = 4**: Tightly clustered histogram near the global maximum with very low median absolute difference (~3.33). ~75% of starts converge near the global maximum. Strong stability for a complex model.
+- **k = 4**: Tightly clustered histogram near the global maximum with very low median absolute difference (~1.30). ~72% of starts converge near the global maximum (within tol = median +3 MAD). Strong stability for a complex model.
 
 **WE ACCEPT k = 4.**
 
