@@ -2084,3 +2084,306 @@ Wealth -> "Partnership Status"
 
 
 '
+
+################################################################################
+################ POST-PROCESSING POOLING FUNCTIONS (pt4.2)
+################################################################################
+
+check_ll_consistency <- function(label, n_imp, path) {
+  cat(sprintf("\n--- Cross-imputation LL check: %s ---\n", label))
+  lls <- sapply(seq_len(n_imp), function(i) {
+    readRDS(paste0(path, "raw_results_", label, "_imp", i, ".rds"))$best_model$lk
+  })
+  cat(sprintf("LL range: %.4f to %.4f\n", min(lls), max(lls)))
+  cat(sprintf("LL median: %.4f  |  SD: %.4f\n", median(lls), sd(lls)))
+  cat(sprintf("Max spread: %.2f LL units\n", max(lls) - min(lls)))
+  ## check when imputations converged on a very different LL (more than median - 2SD LL) that is SD more negative than median
+  outliers <- which(lls < (median(lls) - 2 * sd(lls)))
+  if (length(outliers) > 0) {
+    warning(sprintf("%s: imputation(s) %s are >2 SD below median LL — possible local maximum. Inspect before pooling.",
+                    label, paste(outliers, collapse = ", ")))
+  } else {
+    cat("  ✓ All imputations within acceptable LL range.\n")
+  }
+  threshold <- median(lls) - 2 * sd(lls)
+  p <- ggplot2::ggplot(data.frame(lls = lls, imp = seq_along(lls)),
+                       ggplot2::aes(x = lls)) +
+    ggplot2::geom_histogram(fill = "lightblue", colour = "black", bins = 20) +
+    ggplot2::geom_vline(xintercept = median(lls), colour = "darkgreen",
+                        linetype = "solid", linewidth = 0.8) +
+    ggplot2::geom_vline(xintercept = threshold,   colour = "red",
+                        linetype = "dashed", linewidth = 0.8) +
+    ggplot2::labs(
+      title   = sprintf("Best LL per imputation: %s", label),
+      x       = "Best LL",
+      y       = "Count",
+      caption = sprintf("Green: median (%.2f)  |  Red dashed: median − 2SD threshold (%.2f)",
+                        median(lls), threshold)
+    ) +
+    ggplot2::theme_minimal()
+  print(p)
+  invisible(lls)
+}
+
+
+# check_state_ordering()
+# ------------------------------------------------------------------------------
+# PURPOSE:
+#   Verify that the severity-based state reordering (Determine_state_ordering +
+#   rebase_and_refit_lmest) produced a consistent mapping across all M imputations.
+#   Must pass before Rubin's rules pooling: pooling averages parameters labelled
+#   "State 2" across imputations, so "State 2" must refer to the same latent
+#   content in every imputation.
+#
+# INPUT:
+#   log_df  — the 4 × M tibble produced by bind_rows() of extract_one() log
+#             entries. Columns: imp, new_state (1–4), orig_state (lmest label
+#             before rebase), severity_score (composite score at rebase).
+#
+# HOW THE CHECK WORKS:
+#   Within any single imputation, the reordering is always monotone by
+#   construction: order(composite_score) guarantees score[S1] < score[S2] <
+#   score[S3] < score[S4]. A within-imputation violation is mathematically
+#   impossible.
+#
+#   The meaningful question is cross-imputation: does the same latent content
+#   consistently land in the same slot? This is assessed via the severity score
+#   ranges. For each new_state k, sev_min and sev_max are the lowest and highest
+#   composite scores that landed in slot k across all M imputations.
+#
+#   OVERLAP TEST: if sev_max[k] > sev_min[k+1], the score ranges of adjacent
+#   slots bleed into each other. This means the content assigned to slot k in
+#   some imputations is more severe than the content assigned to slot k+1 in
+#   others — the boundary between these two states is unstable and the states
+#   are not consistently identified across imputations.
+#
+#   NOTE: n_unique_orig is reported in the table but is NOT used for the hard
+#   stop. lmest assigns arbitrary labels (1–4) at each fit, so across M
+#   imputations all four original labels will inevitably appear in every slot.
+#   n_unique_orig = 4 for all slots is normal and expected — it carries no
+#   information about ordering stability.
+#
+# OUTPUT:
+#   Prints a summary table (new_state, n_unique_orig, orig_states, sev_mean,
+#   sev_sd, sev_min, sev_max) and a pass/fail message. Calls stop() if any
+#   adjacent pair overlaps, aborting execution before pooling runs.
+#   Returns the consistency tibble invisibly.
+# ------------------------------------------------------------------------------
+check_state_ordering <- function(log_df, label, n_imp) {
+
+  cat(sprintf("\n--- State ordering consistency: %s ---\n", label))
+
+  # Summarise severity scores per new_state across all imputations.
+  # n_unique_orig and orig_states are informational only — see note above.
+  consistency <- log_df %>%
+    group_by(new_state) %>%
+    summarise(
+      n_unique_orig   = n_distinct(orig_state),
+      orig_states     = paste(sort(unique(orig_state)), collapse = ","),
+      sev_mean        = round(mean(severity_score), 3),
+      sev_sd          = round(sd(severity_score),   3),
+      sev_min         = round(min(severity_score),  3),
+      sev_max         = round(max(severity_score),  3),
+      .groups = "drop"
+    )
+
+  print(kable(consistency,
+              caption = sprintf("%s — state ordering consistency across %d imputations",
+                                label, n_imp)))
+
+  # For each adjacent pair (S1-S2, S2-S3, S3-S4), check whether the score
+  # ranges overlap. An overlap means different imputations placed different
+  # latent content in the same slot — Rubin's rules would then pool parameters
+  # from non-equivalent quantities.
+  overlaps <- sapply(1:(nrow(consistency) - 1), function(j) {
+    consistency$sev_max[j] > consistency$sev_min[j + 1]
+  })
+
+  if (!any(overlaps)) {
+    cat("  ✓ No score range overlap between adjacent states — ordering consistent across all imputations.\n")
+  } else {
+    problem_pairs <- which(overlaps)
+    cat(sprintf("  ⚠ ORDERING VIOLATION: score ranges overlap for state pair(s): %s\n",
+                paste(sprintf("S%d-S%d", problem_pairs, problem_pairs + 1), collapse = ", ")))
+    cat("  This means the boundary between these states is unstable across imputations.\n")
+    cat("  → Identify affected imputations via the per-imputation min-gap output above\n")
+    cat("    and refit with tighter multi-start before pooling.\n")
+    stop(sprintf("%s: ordering violation detected — pooling aborted.", label))
+  }
+
+  invisible(consistency)
+}
+
+
+# pool_summaries()
+# ------------------------------------------------------------------------------
+# PURPOSE:
+#   Apply Rubin's rules to pool per-imputation LTA regression summaries into a
+#   single set of estimates with correct multiple-imputation SEs and p-values.
+#
+# INPUTS:
+#   summaries_{label}_imp{i}.rds — per-imputation tibbles from regression_summaries()
+#
+# OUTPUT COLUMNS (both $transitions and $initial_states):
+#   varname    — covariate name (from lmest formula)
+#   Transition / State — outcome being modelled
+#   m          — number of imputations contributing (should equal n_imp)
+#   Q_bar      — pooled coefficient: mean across m imputations (Rubin's Q̄)
+#   U_bar      — within-imputation variance: mean of m squared SEs (Rubin's Ū)
+#   B          — between-imputation variance: variance of m coefficients
+#   T_var      — total variance: U_bar + (1 + 1/m) × B
+#   SE_pool    — pooled SE: sqrt(T_var)
+#   t_pool     — pooled t-statistic: Q_bar / SE_pool
+#   nu_BR      — Barnard-Rubin degrees of freedom: (m-1) × (1 + U_bar/((1+1/m)×B))²
+#                Large values (>> m-1=21) mean B << U_bar — t approaches normal.
+#                nu_BR = m-1 = 21 means B dominates — correction matters most.
+#   p_pool     — two-sided p-value from t(nu_BR) distribution
+#   n_NA_SE    — number of imputations where SE was NaN (Hessian inversion failed).
+#                0 = all SEs valid. High values make SE_pool unreliable.
+#   N_obs      — mean observed count in the from-state (transitions) or
+#                state (initial states) across imputations
+#   EPV        — events per variable: N_obs / n_predictors, averaged across imputations.
+#                Rows with EPV < 10 are flagged in Sep_Flag and excluded from Signif.
+#   Sep_Flag   — data quality flag: "OK", "LOW EPV=x", "SE NA in k/22 imps"
+#   Signif     — significance stars: "***"/"**"/"*" for p<0.01/0.05/0.10, "" otherwise.
+#                Empty when EPV < 10 (coefficient not reportable).
+#   Comment    — "Reliable" (p<0.05, EPV OK), "n.s", "Exclude — low EPV",
+#                "Unreliable SE"
+# ------------------------------------------------------------------------------
+pool_summaries <- function(label, n_imp, path) {
+
+  cat(sprintf("\nPooling %s across %d imputations...\n", label, n_imp))
+
+  summaries_list <- map(1:n_imp, function(i) {
+    f <- paste0(path, "summaries_", label, "_imp", i, ".rds")
+    if (!file.exists(f)) stop(sprintf("Missing: %s", f))
+    readRDS(f)
+  })
+
+  trans_all <- map_dfr(summaries_list, ~ .x$transitions, .id = "imp") %>%
+    mutate(imp = as.integer(imp))
+
+  EPV_THRESHOLD <- 10  # minimum EPV to treat a pooled coefficient as estimable
+
+  trans_pooled <- trans_all %>%
+    group_by(varname, Transition) %>%
+    summarise(
+      m        = n(),
+      Q_bar    = mean(Coefficient,  na.rm = TRUE),
+      U_bar    = mean(StdError^2,   na.rm = TRUE),
+      B        = var(Coefficient,   na.rm = TRUE),
+      T_var    = U_bar + (1 + 1/m) * B,
+      SE_pool  = sqrt(T_var),
+      t_pool   = Q_bar / SE_pool,
+      nu_BR    = (m - 1) * (1 + U_bar / ((1 + 1/m) * B))^2,
+      p_pool   = 2 * pt(-abs(t_pool), df = nu_BR),
+      n_NA_SE  = sum(is.na(StdError)),
+      N_obs    = mean(N_obs_trans,   na.rm = TRUE),
+      EPV      = mean(EPV,           na.rm = TRUE),
+      .groups  = "drop"
+    ) %>%
+    mutate(
+      Sep_Flag = case_when(
+        EPV < EPV_THRESHOLD ~ sprintf("LOW EPV=%.1f", EPV),
+        n_NA_SE > 0         ~ sprintf("SE NA in %d/%d imps", n_NA_SE, m),
+        TRUE                ~ "OK"
+      ),
+      Signif = case_when(
+        EPV < EPV_THRESHOLD ~ "",
+        abs(Q_bar) > 8      ~ "!!!",
+        p_pool < 0.01       ~ "***",
+        p_pool < 0.05       ~ "**",
+        p_pool < 0.10       ~ "*",
+        TRUE                ~ ""
+      ),
+      Comment = case_when(
+        EPV < EPV_THRESHOLD ~ "Exclude — low EPV",
+        n_NA_SE > 0         ~ "Unreliable SE",
+        p_pool < 0.05       ~ "Reliable",
+        TRUE                ~ "n.s"
+      )
+    )
+
+  init_all <- map_dfr(summaries_list, ~ .x$initial_states, .id = "imp") %>%
+    mutate(imp = as.integer(imp))
+
+  init_pooled <- init_all %>%
+    group_by(varname, State) %>%
+    summarise(
+      m        = n(),
+      Q_bar    = mean(Coefficient,  na.rm = TRUE),
+      U_bar    = mean(StdError^2,   na.rm = TRUE),
+      B        = var(Coefficient,   na.rm = TRUE),
+      T_var    = U_bar + (1 + 1/m) * B,
+      SE_pool  = sqrt(T_var),
+      t_pool   = Q_bar / SE_pool,
+      nu_BR    = (m - 1) * (1 + U_bar / ((1 + 1/m) * B))^2,
+      p_pool   = 2 * pt(-abs(t_pool), df = nu_BR),
+      n_NA_SE  = sum(is.na(StdError)),
+      N_obs    = mean(N_obs_states,  na.rm = TRUE),
+      EPV      = mean(EPV,           na.rm = TRUE),
+      .groups  = "drop"
+    ) %>%
+    mutate(
+      Sep_Flag = case_when(
+        EPV < EPV_THRESHOLD ~ sprintf("LOW EPV=%.1f", EPV),
+        n_NA_SE > 0         ~ sprintf("SE NA in %d/%d imps", n_NA_SE, m),
+        TRUE                ~ "OK"
+      ),
+      Signif = case_when(
+        EPV < EPV_THRESHOLD ~ "",
+        abs(Q_bar) > 8      ~ "!!!",
+        p_pool < 0.01       ~ "***",
+        p_pool < 0.05       ~ "**",
+        p_pool < 0.10       ~ "*",
+        TRUE                ~ ""
+      ),
+      Comment = case_when(
+        EPV < EPV_THRESHOLD ~ "Exclude — low EPV",
+        n_NA_SE > 0         ~ "Unreliable SE",
+        p_pool < 0.05       ~ "Reliable",
+        TRUE                ~ "n.s"
+      )
+    )
+
+  list(transitions = trans_pooled, initial_states = init_pooled)
+}
+
+
+diagnose_barnard_rubin <- function(pooled, label) {
+
+  cat(sprintf("\n--- Barnard-Rubin df diagnostic: %s ---\n", label))
+
+  trans <- pooled$transitions
+
+  cat("\nnu_BR distribution (transitions):\n")
+  print(summary(trans$nu_BR))
+
+  low_df <- trans %>% filter(nu_BR < 10)
+  if (nrow(low_df) > 0) {
+    cat(sprintf("\n%d parameter(s) with nu_BR < 10 (critical value > 2.23):\n", nrow(low_df)))
+    print(low_df %>% select(varname, Transition, nu_BR, t_pool, p_pool, Sep_Flag))
+  } else {
+    cat("  ✓ All nu_BR >= 10 — Barnard-Rubin correction has modest impact.\n")
+  }
+
+  flipped <- trans %>%
+    mutate(
+      sig_z = abs(t_pool) > 1.96,
+      sig_t = p_pool < 0.05
+    ) %>%
+    filter(sig_z != sig_t)
+
+  if (nrow(flipped) > 0) {
+    cat(sprintf("\n%d parameter(s) where Barnard-Rubin changes significance at p=0.05:\n",
+                nrow(flipped)))
+    print(flipped %>% select(varname, Transition, nu_BR, t_pool, p_pool, sig_z, sig_t))
+  } else {
+    cat("  ✓ No significance conclusions changed at p=0.05 by Barnard-Rubin correction.\n")
+  }
+}
+
+
+################################################################################
+################ END OF POST-PROCESSING POOLING FUNCTIONS
+################################################################################
