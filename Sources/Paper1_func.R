@@ -1630,23 +1630,17 @@ lmestSearch_plot <- function(all_lks, k = 4, k_multiplier = 3, plot_hist = TRUE)
   df_filtered <- data.frame(diffs = filtered_diffs, type = "Filtered")
   
   if(plot_hist){
-    refinement_diff <- abs_best_lk - max_lk  # > 0 if refinement improved on best random start
-    
-    # Caption notes refinement gain; if line falls outside data range (refinement
-    # improved on all random starts) we report the gain in text rather than
-    # distorting the x-axis scale.
-    refine_label <- if (refinement_diff > 0)
-      sprintf("Red dashed line: start=2 refinement LL=%.4f (+%.4f vs best random start — shows improvement of refinement)",
-              abs_best_lk, refinement_diff)
-    else
-      sprintf("Red dashed line: start=2 refinement LL=%.4f (%.4f vs best random start)",
-              abs_best_lk, refinement_diff)
+    # start=2 uses the best run's converged parameters as initial values (not the
+    # original random seed), so refinement_diff > 0 means the EM travelled further
+    # from an already-converged solution — a large gap flags incomplete convergence.
+    refinement_diff <- abs_best_lk - max_lk
+    refine_label <- sprintf("Red dashed: start=2 refinement LL=%.4f (%+.4f vs best random start)",
+                            abs_best_lk, refinement_diff)
     
     p1 <- ggplot(df_all, aes(x = diffs)) +
       geom_histogram(fill = "lightblue", color = "black", bins = 50) +
       geom_vline(xintercept = 0,               color = "blue", linetype = "dashed") +
       geom_vline(xintercept = refinement_diff, color = "red",  linetype = "dotted") +
-      coord_cartesian(xlim = range(diff_array)) +
       labs(title = paste0("Random starts log-lik diffs for k=", k),
            x = "Log-likelihood difference from best random start",
            y = "Count",
@@ -1743,7 +1737,7 @@ run_lmest_parallel_seeds <- function(config, data, n_reps = 200, ntry = 1, n_cor
           if (!is.na(lk_val)) {
             start_key <- paste0(current_type, "_", current_start)
             
-            # ONLY include if random (exclude deterministic start=0 and start=2)
+            # ONLY include if random (exclude deterministic start=0; lmest() has no start=2 refinement)
             if (!exclude_deterministic || current_type == "random") {
               ll_runs[[start_key]] <- lk_val
             }
@@ -1800,7 +1794,7 @@ run_lmest_parallel_seeds <- function(config, data, n_reps = 200, ntry = 1, n_cor
         title = paste0("Random starts LL diffs: ", config$name, " (k=", k, ", n=", length(all_lls), " starts)"),
         x = "Log-likelihood difference from max",
         y = "Count",
-        caption = if(exclude_deterministic) "Only random starts (start=1). Excludes deterministic (start=0,2)" else "All starts including deterministic"
+        caption = if(exclude_deterministic) "Only random starts (start=1). Excludes deterministic initialisation (start=0)" else "All starts including deterministic"
       ) +
       theme_minimal()
     
