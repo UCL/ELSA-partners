@@ -1630,23 +1630,40 @@ lmestSearch_plot <- function(all_lks, k = 4, k_multiplier = 3, plot_hist = TRUE)
   df_filtered <- data.frame(diffs = filtered_diffs, type = "Filtered")
   
   if(plot_hist){
+    refinement_diff <- abs_best_lk - max_lk  # > 0 if refinement improved on best random start
+    
+    # Caption notes refinement gain; if line falls outside data range (refinement
+    # improved on all random starts) we report the gain in text rather than
+    # distorting the x-axis scale.
+    refine_label <- if (refinement_diff > 0)
+      sprintf("Red dashed line: start=2 refinement LL=%.4f (+%.4f vs best random start — shows improvement of refinement)",
+              abs_best_lk, refinement_diff)
+    else
+      sprintf("Red dashed line: start=2 refinement LL=%.4f (%.4f vs best random start)",
+              abs_best_lk, refinement_diff)
+    
     p1 <- ggplot(df_all, aes(x = diffs)) +
       geom_histogram(fill = "lightblue", color = "black", bins = 50) +
-      geom_vline(xintercept = abs_best_lk - max_lk, color = "red", linetype = "dashed") +
-      labs(title = paste0("Random starts log-lik diffs for k=", k," and n =",length(abs_diff)," random starts"),
-           x = "Log-likelihood difference from max",
+      geom_vline(xintercept = 0,               color = "blue", linetype = "dashed") +
+      geom_vline(xintercept = refinement_diff, color = "red",  linetype = "dotted") +
+      coord_cartesian(xlim = range(diff_array)) +
+      labs(title = paste0("Random starts log-lik diffs for k=", k),
+           x = "Log-likelihood difference from best random start",
            y = "Count",
-           caption = "Red dashed line: absolute best log-likelihood found (start=2 refinement run)") +
+           caption = paste0("Blue dashed: best random start (LL=", round(max_lk, 4), ").\n", refine_label)) +
       theme_minimal()
     
     p2 <- ggplot(df_filtered, aes(x = diffs)) +
       geom_histogram(fill = "lightblue", color = "black", bins = 50) +
-      geom_vline(xintercept = abs_best_lk - max_lk, color = "red", linetype = "dashed") +
-      labs(title = paste0("Filtered log-lik diffs for k=", k," and n =",length(abs_diff)," random starts 
-                          (tol = median + ", k_multiplier, "*MAD)"),
-           x = "Log-likelihood difference from max",
+      geom_vline(xintercept = 0,               color = "blue", linetype = "dashed") +
+      geom_vline(xintercept = refinement_diff, color = "red",  linetype = "dotted") +
+      coord_cartesian(xlim = range(filtered_diffs)) +
+      labs(title = paste0("Filtered log-lik diffs for k=", k,
+                          " (tol = median + ", k_multiplier, "*MAD)"),
+           x = "Log-likelihood difference from best random start",
            y = "Count",
-           caption = paste0("Red dashed line: absolute best log-likelihood found (start=2 refinement run). \n Drop ratio: ", round(drop_ratio, 3))) +
+           caption = paste0("Blue dashed: best random start (LL=", round(max_lk, 4), ").\n",
+                            refine_label, "\nDrop ratio: ", round(drop_ratio, 3))) +
       theme_minimal()
     
     grid.arrange(p1, p2, ncol = 1)
