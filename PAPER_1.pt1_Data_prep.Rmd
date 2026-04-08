@@ -316,10 +316,11 @@ H_elsa_w4_6<-H_elsa_w1_9 %>% dplyr::select(all_of(c("idauniq","ragender", # rage
                                                     finVARS,
                                                     SSuppVARS,
                                                     PActVars,
-                                                    CRPVars))) %>% filter(inw4 == 1) # n = 11050
+                                                    CRPVars))) 
 
+H_elsa_w4_6<-H_elsa_w4_6 %>% filter(inw4 == 1) # -> n = 11050
 
-H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r4agey>=50) # n = 10749
+H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r4agey>=50) # -> n = 10749
 
 ########################################
 ############ filtering out "CAT" states
@@ -332,9 +333,9 @@ H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r4agey>=50) # n = 10749
 #  rxiwstat == 9 ~ "cat state"
 ####### THIS WONT BE NECESSARY WITH HSE data
 
-H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r4iwstat != 9) # n = 10749
-H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r5iwstat != 9) # n = 10071
-H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r6iwstat != 9) # n = 9452
+H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r4iwstat != 9) # -> n = 10749
+H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r5iwstat != 9) # -> n = 10071
+H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r6iwstat != 9) # -> n = 9452
 
 
 ########################################
@@ -343,10 +344,13 @@ H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r6iwstat != 9) # n = 9452
 H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r6iwstat != 6, r6iwstat != 5 ) # n = 8726
 
 
+
+########################################
+############ Selecting all ELSA wave 1 over50 for future comparisons (no filters here)
+#######################################
 H_elsa_w1<-H_elsa_w1_9 %>% filter(r1cohort_e == 1, 
-#                                  r1proxy != 1,
                                   r1agey>=50
-                                  )
+                                  )  # -> 11391
 
 
 
@@ -597,7 +601,7 @@ timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
 ```
 
 
-```{r}
+```{r eval=FALSE}
 
 #fit_free<-readRDS(paste0(paper1_MODELS_rds_path,"cesd_lat_free_fit20260313_160306.rds"))
 # hardcoded timestamp — intentional; update if model is refitted
@@ -834,15 +838,54 @@ print(dropout_df)
 
 ## exclude participants that dropped out at wave 5 without return
 
-H_elsa_w4_6<-H_elsa_w4_6 %>% filter(dropout_status !=5) # n = 8656
+H_elsa_w4_6<-H_elsa_w4_6 %>% filter(dropout_status !=5) # -> n = 8656
 
 
 #filter cases where proxy was never 1 (all zeroes) OR was 1 in only 1 wave
 H_elsa_w4_6<-H_elsa_w4_6 %>%  filter((r4proxy == 0 & r5proxy == 0 & r6proxy == 0) | 
-         (r4proxy + r5proxy + r6proxy) == 1) # 8014
+         (r4proxy + r5proxy + r6proxy) == 1) # -> 8014
 
 
 nrow(H_elsa_w4_6)
+
+### RECAP of Sample selection criteria (DO NOT UNCOMMENT)
+
+# select participants in wave 4
+# H_elsa_w4_6<-H_elsa_w4_6 %>% filter(inw4 == 1)                  # -> n = 11050
+
+# select participants age 50 or above 
+# H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r4agey>=50)                 # -> n = 10749
+
+
+########################################
+############ filtering out "unknow vital" states
+#######################################
+#  rXiwstat == 1 ~ "responded, alive",
+#  rXiwstat == 4 ~ "no-response but alive",
+#  rXiwstat == 5 ~ "died between the last interview and the current one",
+#  rXiwstat == 6 ~ "died in a previous wave",
+#  rXiwstat == 7 ~ "dropped out from sample",
+#  rxiwstat == 9 ~ "unknown vital state"
+
+#H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r4iwstat != 9)               # -> n = 10749
+#H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r5iwstat != 9)               # -> n = 10071
+#H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r6iwstat != 9)               # -> n =  9452
+
+
+########################################
+############ filtering out responded that died at wave 6 or previously
+#######################################
+# H_elsa_w4_6<-H_elsa_w4_6 %>% filter(r6iwstat != 6, r6iwstat != 5 )#-> n = 8726
+
+
+
+## exclude participants that dropped out at wave 5 without return
+# H_elsa_w4_6<-H_elsa_w4_6 %>% filter(dropout_status !=5)          # -> n = 8656
+
+# include cases where proxy was never 1 (all zeroes) OR it was proxy (1) in only 1 wave
+#H_elsa_w4_6<-H_elsa_w4_6 %>%  filter((r4proxy == 0 & r5proxy == 0 & r6proxy == 0) | 
+#                                     (r4proxy + r5proxy + r6proxy) == 1) 
+                                                                   # -> n = 8014  <- FINAL SAMPLE
 
 ```
 
