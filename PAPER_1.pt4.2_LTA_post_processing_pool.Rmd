@@ -1,0 +1,660 @@
+---
+title: "LTA Post-processing and MI Pooling"
+author: "Diego Vitali"
+output:
+  github_document:
+    toc: true
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+editor_options:
+  markdown:
+    wrap: 72
+bibliography: references.bib
+---
+
+```{r setup, eval=TRUE, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(mice)
+library(LMest)
+library(knitr)
+
+source("Sources/Paper1_func.R")
+```
+
+```{r paths, eval=TRUE}
+rds_path    <- path.expand("~/private_WP5/WP5_data/rds/")
+models_path <- path.expand("~/private_WP5/WP5_data/model_fits/imputations/")
+
+n_imputations <- 22
+```
+
+---
+
+# 1. Overview
+
+This document covers the final stage of the LTA pipeline: transforming
+the 22 × 2 (TE and DE) raw model fits from
+`PAPER_1.pt4.1_imputation_loop.r` into pooled, reportable results.
+
+The pipeline proceeds in three phases:
+
+**Phase A — Per-imputation extraction (Sections 3–6).** For each
+completed dataset, the raw `lmest` solution is (i) mapped onto a
+common severity ordering of the four latent states, (ii) refitted at
+that ordering to obtain numerical Hessian standard errors, and (iii)
+summarised into clean coefficient tibbles. Results are saved as
+`summaries_{TE|DE}_imp{i}.rds`.
+
+**Phase B — Quality checks (Sections 4b–7).** Two cross-imputation
+checks must pass before pooling: (a) a log-likelihood consistency
+check confirms no imputation converged to a local maximum; (b) a state
+ordering consistency check confirms the severity-based reordering
+produced the same state-to-content mapping across all 22 imputations.
+If either check fails, pooling is aborted.
+
+**Phase C — Multiple-imputation pooling (Section 8).** Rubin's rules
+are applied via `mice::pool.scalar()`, yielding pooled coefficients,
+standard errors, Barnard-Rubin degrees of freedom, p-values, and
+imputation diagnostics (fmi, r, lambda) for every regression
+coefficient in both models.
+
+---
+
+# 2. Formula reconstruction
+
+The formulas passed to `lmest()` must be identical here and in
+`pt4.1`. They are rebuilt from scratch from one completed dataset so
+that `lmestFormula()` encodes the same factor contrasts that were used
+during model fitting. Any drift between the two files would cause
+`rebase_and_refit_lmest()` to fail or silently misalign parameters.
+
+```{r formulas, eval=TRUE}
+updated_mids <- readRDS(paste0(rds_path, "mice_updatedMIDS_VH.rds"))
+
+prep_lta_data <- function(imp_df) {
+  imp_df %>%
+    mutate(
+      ssupport6     = expm1(ssupport6_log1p),
+      ssupport6_cat = case_when(
+        partner == "No-partner"  ~ "No-partner",
+        ssupport6 <= 1.5         ~ "supportive partner",
+        ssupport6 >  1.5         ~ "less than supportive partner",
+        TRUE                     ~ NA_character_
+      ) %>% factor(levels = c("No-partner",
+                               "less than supportive partner",
+                               "supportive partner"))
+    ) %>%
+    select(all_of(Variables))
+}
+
+Variables <- c(
+  "idauniq", "time",
+  "raagey_z", "Sex_BIN", "raeduc_e",
+  "wealthQ_bin", "MLTC", "cesd_lat_shifted", "loneliness_group",
+  "partner", "ssupport6_cat",
+  "painchr_ext", "lvimp_shifted_cat3"
+)
+
+one_imp           <- prep_lta_data(mice::complete(updated_mids, 1))
+latent_state_vars <- c("lvimp_shifted_cat3", "painchr_ext")
+
+TE_initial_prob_vars <- c("Sex_BIN", "raeduc_e", "wealthQ_bin",
+                           "ssupport6_cat", "MLTC", "raagey_z")
+DE_vars              <- c(TE_initial_prob_vars, "cesd_lat_shifted", "loneliness_group")
+
+fmLatent_TE <- lmestFormula(data = one_imp, response = latent_state_vars,
+                             LatentInitial    = TE_initial_prob_vars,
+                             LatentTransition = TE_initial_prob_vars)
+
+fmLatent_DE <- lmestFormula(data = one_imp, response = latent_state_vars,
+                             LatentInitial    = DE_vars,
+                             LatentTransition = DE_vars)
+```
+
+```{r ordering-config, eval=TRUE}
+ordering_indicators <- c("lvimp_shifted_cat3", "painchr_ext")
+ordering_weights    <- c(0.6, 0.4)
+```
+
+The composite severity score used to order states is:
+
+$$\text{severity}_k = 0.6 \times E[\texttt{lvimp}|k] + 0.4 \times E[\texttt{painchr}|k]$$
+
+The two indicators have different ranges (`lvimp_shifted_cat3`: 0–2,
+`painchr_ext`: 0–1). Equal weights would let the wider-range indicator
+dominate. The 0.6/0.4 split gives functional impact slightly more pull
+than the chronic/acute binary, consistent with its clinical
+interpretation as the more severe dimension. Weights need only be
+consistent across imputations — a state swap can only occur if two
+states have nearly identical composite scores, and this is caught by
+`check_state_ordering()` (Section 7).
+
+---
+
+# 3. Per-imputation extraction: `extract_one()`
+
+`extract_one()` is the core unit of Phase A. It performs five steps for
+a single imputation:
+
+1.  **Load** `raw_results_{label}_imp{i}.rds` — the best `lmest`
+    solution selected from the multi-start grid in `pt4.1`.
+2.  **Order states** using `Determine_state_ordering()`: compute the
+    composite severity score from the conditional response probability
+    matrix (Psi), rank the four states, and print the ordered scores
+    with the minimum adjacent gap as an inline sanity check. A gap
+    below 0.05 between any two adjacent states is flagged as a
+    near-tie — a warning that the boundary between those states is
+    numerically fragile.
+3.  **Rebase and refit**: `rebase_and_refit_lmest()` permutes the
+    parameter matrices (Piv, Pi, Ga, Be) to match the severity order,
+    then refits with `out_SE=TRUE` to compute numerical Hessian
+    standard errors at the rebased solution. SEs are computed on the
+    final, rebased parameter vector — computing them before rebasing
+    and transforming algebraically would be incorrect because the
+    transformation is non-linear for the Ga component.
+4.  **Extract summaries**: `regression_summaries()` returns clean
+    tibbles of transition and initial-state multinomial logit
+    coefficients with per-coefficient N and EPV.
+5.  **Save** `summaries_{label}_imp{i}.rds` and return a 4-row log
+    tibble recording which original lmest state label was mapped to
+    each new severity slot.
+
+```{r extract-one-def, eval=TRUE}
+extract_one <- function(imp, label, fm_latent, fm_responses) {
+
+  cat(sprintf("\n[%s] Imputation %d of %d\n", label, imp, n_imputations))
+
+  raw <- readRDS(paste0(models_path, "raw_results_", label, "_imp", imp, ".rds"))
+
+  # ── state ordering ──────────────────────────────────────────────────────────
+  ordering    <- Determine_state_ordering(
+    raw$best_model,
+    indicator_names   = ordering_indicators,
+    indicator_weights = ordering_weights
+  )
+  state_order <- ordering$severity_order
+
+  scores_ordered <- round(ordering$composite_severity[state_order], 3)
+  gaps           <- diff(scores_ordered)
+  min_gap_idx    <- which.min(gaps)
+  min_gap_label  <- sprintf("S%d-S%d=%.3f", min_gap_idx, min_gap_idx + 1, gaps[min_gap_idx])
+  gap_flag       <- if (any(gaps < 0.05)) " !!! NEAR-TIE — check ordering" else " OK"
+  cat(sprintf("  S1=%.3f  S2=%.3f  S3=%.3f  S4=%.3f  (orig order: %s)  min gap: %s%s\n",
+              scores_ordered[1], scores_ordered[2],
+              scores_ordered[3], scores_ordered[4],
+              paste(state_order, collapse = "-"),
+              min_gap_label, gap_flag))
+
+  # ── rebase + SE ─────────────────────────────────────────────────────────────
+  model_rebased <- rebase_and_refit_lmest(
+    fit_model        = raw$best_model,
+    state_order      = state_order,
+    latent_formula   = fm_latent,
+    response_formula = fm_responses,
+    out_SE           = TRUE,
+    plot             = FALSE
+  )
+
+  # ── summaries ───────────────────────────────────────────────────────────────
+  summaries <- regression_summaries(Model_fit = model_rebased)
+
+  saveRDS(summaries,
+          paste0(models_path, "summaries_", label, "_imp", imp, ".rds"))
+
+  # ── state order log entry ───────────────────────────────────────────────────
+  log_entry <- tibble(
+    imp            = imp,
+    new_state      = 1:4,
+    orig_state     = state_order,
+    severity_score = ordering$composite_severity[state_order]
+  )
+
+  rm(raw, model_rebased, summaries)
+  gc()
+
+  log_entry
+}
+```
+
+---
+
+# 4. Cross-imputation log-likelihood check
+
+Before post-processing, we verify that all 22 imputations converged to
+the same region of the likelihood surface. Each imputation is an
+independently completed dataset drawn from the same MICE posterior, so
+all 22 should produce similar best log-likelihoods (same n, same model
+structure, similar data).
+
+A large negative outlier — defined as a best LL more than 2 SDs below
+the median — indicates that the optimiser settled in a local maximum
+for that imputation. Its parameters describe a qualitatively different
+solution and should not be pooled with the other 21. If flagged,
+options are (a) refit that imputation with more random starts, or (b)
+exclude from pooling and document the decision.
+
+`check_ll_consistency()` is defined in `Sources/Paper1_func.R` and
+reads `best_model$lk` from every `raw_results_{label}_imp{i}.rds`.
+
+```{r ll-check, eval=TRUE}
+lls_TE <- check_ll_consistency("TE", n_imputations, models_path)
+lls_DE <- check_ll_consistency("DE", n_imputations, models_path)
+```
+
+---
+
+# 5. Extraction loop — Total Effects (TE)
+
+The TE model includes the baseline covariates and the partnership /
+spousal support exposure (`ssupport6_cat`) in both the initial-state
+and transition equations. Depression (`cesd_lat_shifted`) and
+loneliness (`loneliness_group`) are **not** included — they are
+potential mediators on the pathway from partnership to pain, so
+conditioning on them in the TE model would partially block the path of
+interest.
+
+`bind_rows()` collects the 22 × 4 log tibbles into `state_order_log_TE`
+(88 rows), saved for the ordering check in Section 7.
+
+```{r loop-TE, eval=FALSE}
+cat("\n", rep("#", 80), "\n")
+cat("POST-PROCESSING: TOTAL EFFECTS\n")
+cat(rep("#", 80), "\n")
+
+state_order_log_TE <- bind_rows(map(1:n_imputations, function(i) {
+  extract_one(i, "TE", fmLatent_TE$latentFormula, fmLatent_TE$responsesFormula)
+}))
+saveRDS(state_order_log_TE, paste0(models_path, "state_order_log_TE.rds"))
+cat("\nTE post-processing complete.\n")
+```
+
+---
+
+# 6. Extraction loop — Direct Effects (DE)
+
+The DE model adds depression and loneliness as covariates, estimating
+the association between partnership / spousal support and pain
+transitions *net* of these potential mediators. Comparing TE and DE
+coefficients for `ssupport6_cat` provides an informal indication of how
+much of the partnership effect (if any) is mediated through depression
+or loneliness.
+
+```{r loop-DE, eval=FALSE}
+cat("\n", rep("#", 80), "\n")
+cat("POST-PROCESSING: DIRECT EFFECTS\n")
+cat(rep("#", 80), "\n")
+
+state_order_log_DE <- bind_rows(map(1:n_imputations, function(i) {
+  extract_one(i, "DE", fmLatent_DE$latentFormula, fmLatent_DE$responsesFormula)
+}))
+saveRDS(state_order_log_DE, paste0(models_path, "state_order_log_DE.rds"))
+cat("\nDE post-processing complete.\n")
+```
+
+---
+
+# 7. State ordering consistency check
+
+Before pooling, we verify that the severity-based reordering assigned
+the same latent content to the same slot across all 22 imputations.
+This is a prerequisite for Rubin's rules: pooling averages parameters
+labelled "State 2 transition coefficient" across imputations, which is
+only valid if "State 2" refers to the same clinical content in every
+imputation.
+
+`check_state_ordering()` (defined in `Sources/Paper1_func.R`) assesses
+this via a **score range overlap test**. For each severity slot
+(new_state 1–4), it records the minimum and maximum composite score
+that landed in that slot across the 22 imputations. If the maximum
+score in slot *k* exceeds the minimum score in slot *k+1*, the
+boundaries between those two states are unstable — some imputations
+assigned higher-severity cases to slot *k* than lower-severity cases
+assigned to slot *k+1* in other imputations.
+
+Note: `n_unique_orig` in the output table counts how many distinct
+original lmest labels (1–4) mapped to each severity slot. Because
+lmest assigns arbitrary integer labels at each fit, all four labels
+will appear in each slot across 22 imputations — `n_unique_orig = 4`
+for all slots is normal and expected. It carries no information about
+ordering stability and is not used for the pass/fail decision.
+
+If any overlap is detected, `check_state_ordering()` calls `stop()`
+to abort execution before pooling runs.
+
+```{r ordering-load, eval=TRUE}
+state_order_log_TE <- readRDS(paste0(models_path, "state_order_log_TE.rds"))
+state_order_log_DE <- readRDS(paste0(models_path, "state_order_log_DE.rds"))
+```
+
+```{r ordering-check, eval=TRUE}
+check_state_ordering(state_order_log_TE, "TE", n_imputations)
+check_state_ordering(state_order_log_DE, "DE", n_imputations)
+```
+
+---
+
+# 8. Multiple-imputation pooling: Rubin's rules
+
+`pool_summaries()` applies Rubin's rules to pool the 22
+per-imputation coefficient tibbles into a single set of estimates.
+Pooling is performed via `mice::pool.scalar()`, which implements the
+Barnard-Rubin (1999) degrees of freedom correction. The function is
+called separately for each (varname × Transition) or (varname × State)
+cell using `group_modify()`, which avoids a nest/unnest overhead and
+keeps the grouping keys in scope.
+
+## 8.1 Output columns
+
+Both `$transitions` and `$initial_states` contain:
+
+| Column | Description |
+|--------|-------------|
+| `m` | Number of imputations contributing (should equal `n_imputations`) |
+| `Q_bar` | Pooled coefficient: mean across *m* imputations ($\bar{Q}$, Rubin 1987 eq. 3.1.2) |
+| `U_bar` | Within-imputation variance: mean of *m* squared SEs ($\bar{U}$, eq. 3.1.3) |
+| `B` | Between-imputation variance: variance of *m* coefficients (eq. 3.1.4) |
+| `T_var` | Total variance: $\bar{U} + (1 + 1/m) \times B$ (eq. 3.1.5) |
+| `SE_pool` | Pooled SE: $\sqrt{T_{var}}$ |
+| `t_pool` | Pooled t-statistic: $\bar{Q} / \text{SE}_{pool}$ |
+| `nu_BR` | Barnard-Rubin df: $(m-1)(1 + \bar{U}/((1+1/m)B))^2$ |
+| `p_pool` | Two-sided p-value from $t(\nu_{BR})$ |
+| `fmi` | Fraction of missing information (eq. 3.1.10) |
+| `r` | Relative increase in variance due to missingness: $(1+1/m)B / \bar{U}$ |
+| `lambda` | Proportion of total variance due to missingness: $(1+1/m)B / T_{var}$ |
+| `n_NA_SE` | Imputations where SE was NaN (Hessian inversion failed) |
+| `N_obs` | Mean observed count in from-state / state across imputations |
+| `EPV` | Events per variable: $N_{obs} / n_{predictors}$ |
+| `Sep_Flag` | Data quality flag: "OK", "LOW EPV=x", "SE NA in k/22 imps" |
+| `Signif` | Significance stars: \*\*\* / \*\* / \* for p < 0.01 / 0.05 / 0.10 |
+| `Comment` | "Reliable", "n.s", "Exclude — low EPV", or "Unreliable SE" |
+
+## 8.2 Interpreting the imputation diagnostics
+
+For each pooled estimate, the key diagnostics to inspect are:
+
+- **`r`** (relative increase in variance due to non-response): how
+  much larger is the between-imputation variance relative to the
+  within-imputation variance? Values near zero mean missingness
+  contributes little extra uncertainty for this parameter.
+- **`nu_BR`** (residual df for hypothesis testing): should be much
+  larger than *m* − 1 = 21. Values approaching 21 indicate that
+  between-imputation variance dominates — the Barnard-Rubin
+  correction widens the confidence interval relative to a normal
+  approximation.
+- **`lambda`** (proportion of total variance due to missingness): how
+  much of the pooled SE comes from missing data? High lambda for a
+  specific transition suggests that parameter is poorly identified
+  given the incomplete data.
+- **`fmi`** (fraction of missing information): directly interpretable
+  as the proportion of statistical information about that parameter
+  lost to missingness.
+
+## 8.3 EPV exclusion
+
+Coefficients with EPV < 10 are flagged in `Sep_Flag` and excluded from
+`Signif` and `Comment`. EPV is the number of observed transitions
+from a given state divided by the number of predictors in the
+transition equation. Sparse transitions (few observed events relative
+to predictors) produce unreliable coefficient estimates and inflated
+SEs regardless of pooling. See Peduzzi et al. (1996) and Vittinghoff &
+McCulloch (2007).
+
+## 8.4 Run pooling
+
+These chunks save the pooled results to disk. They are set to
+`eval=FALSE` because they write `.rds` files; results are loaded in
+Section 8.5.
+
+```{r pool-run, eval=FALSE}
+pooled_TE <- pool_summaries("TE", n_imputations, models_path)
+pooled_DE <- pool_summaries("DE", n_imputations, models_path)
+
+saveRDS(pooled_TE, paste0(models_path, "pooled_TE.rds"))
+saveRDS(pooled_DE, paste0(models_path, "pooled_DE.rds"))
+```
+
+## 8.5 Load pooled results
+
+```{r pool-load, eval=TRUE}
+pooled_TE <- readRDS(paste0(models_path, "pooled_TE.rds"))
+pooled_DE <- readRDS(paste0(models_path, "pooled_DE.rds"))
+```
+
+---
+
+# 9. Barnard-Rubin df diagnostic
+
+This section checks whether the finite-df Barnard-Rubin correction
+materially changes significance conclusions relative to the naive
+z-threshold (|t| > 1.96).
+
+The pooled table already contains `nu_BR`, `p_pool`, `fmi`, `r`, and
+`lambda` per row, but with ~84 transition coefficients per model it is
+impractical to identify borderline cases by eye. `diagnose_barnard_rubin()`
+scans for two actionable issues:
+
+1. **Low df (nu_BR < 10):** the t-distribution has heavy tails; the
+   critical value at α = 0.05 exceeds 2.23. These estimates have high
+   between-imputation variance.
+2. **Significance flips:** rows where |t_pool| > 1.96 (z says
+   significant) but p_pool > 0.05 (t(nu_BR) says not significant),
+   or vice versa. The predominant case is the anti-conservative
+   direction: a borderline result that looks significant under z is
+   revealed to be non-significant once the finite-df correction is
+   applied.
+
+```{r br-diagnostic, eval=TRUE}
+diagnose_barnard_rubin(pooled_TE, "TE")
+diagnose_barnard_rubin(pooled_DE, "DE")
+```
+
+---
+
+# 10. Key results tables
+
+Filtered to the primary exposure (`ssupport6_cat`) and secondary
+exposures (`cesd_lat_shifted`, `loneliness_group` in DE only), and
+restricted to EPV ≥ 10.
+
+```{r key-tables-def, eval=TRUE}
+print_key_tables <- function(pooled, label, EPV_threshold = 10, round = 3) {
+
+  hicp_transitions     <- c("1 -> 2", "1 -> 3", "1 -> 4", "2 -> 4", "3 -> 4")
+  recovery_transitions <- c("4 -> 1", "4 -> 2", "4 -> 3")
+
+  cat(sprintf("\n=== %s KEY RESULTS ===\n", label))
+
+  cat("\n-- Initial state probabilities (ssupport6_cat) --\n")
+  pooled$initial_states %>%
+    filter(grepl("^ssu", varname), EPV >= EPV_threshold) %>%
+    arrange(State, varname) %>%
+    mutate(across(where(is.numeric), ~ round(., round))) %>%
+    kable(caption = sprintf("%s — initial state probabilities (ssupport6_cat)", label)) %>%
+    print()
+
+  cat("\n-- Transitions toward HICP (ssupport6_cat) --\n")
+  pooled$transitions %>%
+    filter(Transition %in% hicp_transitions, grepl("^ssu", varname), EPV >= EPV_threshold) %>%
+    arrange(Transition, varname) %>%
+    mutate(across(where(is.numeric), ~ round(., round))) %>%
+    kable(caption = sprintf("%s — transitions toward HICP", label)) %>%
+    print()
+
+  cat("\n-- Transitions out of HICP / recovery (ssupport6_cat) --\n")
+  pooled$transitions %>%
+    filter(Transition %in% recovery_transitions, grepl("^ssu", varname), EPV >= EPV_threshold) %>%
+    arrange(Transition, varname) %>%
+    mutate(across(where(is.numeric), ~ round(., round))) %>%
+    kable(caption = sprintf("%s — transitions out of HICP (recovery)", label)) %>%
+    print()
+}
+```
+
+```{r key-tables-run, eval=TRUE}
+print_key_tables(pooled_TE, "TE")
+print_key_tables(pooled_DE, "DE")
+```
+
+---
+
+# 11. Effect plots
+
+Three figures display the pooled log-odds ratios with 95% confidence
+intervals (computed using the Barnard-Rubin df: `qt(0.975, nu_BR)`).
+Estimates with EPV < 10 are excluded. TE and DE model estimates are
+plotted side by side for direct comparison.
+
+**Figure 1** shows initial-state membership log-ORs for all covariates,
+faceted by state (States 2–4 vs State 1 reference). This summarises
+which baseline characteristics are associated with starting in a given
+pain state.
+
+**Figure 2** shows transition log-ORs for all covariates, faceted by
+transition label and grouped by clinical direction (toward HICP /
+recovery from HICP). Maintenance transitions (state-to-same-state) are
+excluded to focus on clinically meaningful change.
+
+**Figure 3** summarises the primary exposure (`ssupport6_cat`) only,
+combining initial states and key transitions in a single panel layout
+for the main results interpretation.
+
+```{r plot-config, eval=TRUE}
+EPV_PLOT_THRESHOLD <- 10
+
+hicp_transitions     <- c("1 -> 2", "1 -> 3", "1 -> 4", "2 -> 4", "3 -> 4")
+recovery_transitions <- c("4 -> 1", "4 -> 2", "4 -> 3")
+
+varname_labels <- c(
+  "ssupport6_catless than supportive partner" = "Less than supportive partner \n vs no partner",
+  "ssupport6_catsupportive partner"           = "Supportive partner \n vs no partner",
+  "cesd_lat_shifted"                          = "CES-D (continuous)",
+  "loneliness_groupHigh"                      = "High loneliness \n vs not high loneliness"
+)
+
+state_labels <- c(
+  "State 1" = "No pain, No impact on functioning",
+  "State 2" = "AP or CP, no high-impact \n vs No pain, no impact",
+  "State 3" = "NO CP, high-impact \n vs No pain, no impact",
+  "State 4" = "HICP vs \nNo pain, no impact"
+)
+
+state_caption <- str_wrap(paste(
+  "Latent pain states — State 1: no pain and no functional limitations;",
+  "State 2: acute or chronic pain without high-impact limitations;",
+  "State 3: high-impact limitations without chronic pain;",
+  "State 4: high-impact chronic pain (HICP).",
+  "CES-D and loneliness included in the direct effects (DE) model only.",
+  "Estimates with EPV < 10 excluded. Error bars: 95% CI (Barnard-Rubin df)."
+), width = 100)
+
+plot_theme <- theme_minimal(base_size = 11) +
+  theme(legend.position  = "bottom",
+        plot.caption      = element_text(hjust = 0, size = 8),
+        strip.text.y      = element_text(angle = 0))
+```
+
+```{r plot-data-prep, eval=TRUE}
+init_combined <- bind_rows(
+  pooled_TE$initial_states %>% mutate(Model = "TE"),
+  pooled_DE$initial_states %>% mutate(Model = "DE")
+) %>%
+  filter(EPV >= EPV_PLOT_THRESHOLD) %>%
+  filter(grepl("^ssu", varname) | grepl("^loneli", varname) | grepl("^cesd", varname)) %>%
+  mutate(
+    CI_lo   = Q_bar - qt(0.975, df = nu_BR) * SE_pool,
+    CI_hi   = Q_bar + qt(0.975, df = nu_BR) * SE_pool,
+    varname = recode(varname, !!!varname_labels),
+    State   = recode(State,   !!!state_labels)
+  )
+
+trans_combined <- bind_rows(
+  pooled_TE$transitions %>% mutate(Model = "TE"),
+  pooled_DE$transitions %>% mutate(Model = "DE")
+) %>%
+  filter(EPV >= EPV_PLOT_THRESHOLD) %>%
+  filter(grepl("^ssu", varname) | grepl("^loneli", varname) | grepl("^cesd", varname)) %>%
+  mutate(
+    CI_lo     = Q_bar - qt(0.975, df = nu_BR) * SE_pool,
+    CI_hi     = Q_bar + qt(0.975, df = nu_BR) * SE_pool,
+    varname   = recode(varname, !!!varname_labels),
+    Direction = case_when(
+      Transition %in% hicp_transitions     ~ "Toward HICP",
+      Transition %in% recovery_transitions ~ "Recovery from HICP",
+      TRUE                                  ~ "Maintenance"
+    )
+  )
+```
+
+## Figure 1: Initial state membership
+
+```{r fig1-init, eval=TRUE, fig.width=12, fig.height=6}
+p_init <- ggplot(init_combined,
+                 aes(x = Q_bar, y = varname, colour = Model,
+                     xmin = CI_lo, xmax = CI_hi)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_pointrange(position = position_dodge(width = 0.3), size = 0.4, linewidth = .6) +
+  facet_wrap(~ State, nrow = 1) +
+  labs(title   = "Initial state membership — pooled log-ORs (TE vs DE)",
+       x       = "Log-OR (95% CI)", y = NULL, colour = "Model",
+       caption = state_caption) +
+  plot_theme
+
+print(p_init)
+```
+
+## Figure 2: Transitions by clinical direction
+
+```{r fig2-trans, eval=TRUE, fig.width=12, fig.height=10}
+p_trans <- trans_combined %>%
+  filter(Direction != "Maintenance") %>%
+  ggplot(aes(x = Q_bar, y = varname, colour = Model,
+             xmin = CI_lo, xmax = CI_hi)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_pointrange(position = position_dodge(width = 0.3), size = 0.4, linewidth = .6) +
+  facet_grid(Transition ~ Direction, scales = "free_y", space = "free_y") +
+  labs(title   = "Transitions — pooled log-ORs (TE vs DE)",
+       x       = "Log-OR (95% CI)", y = NULL, colour = "Model",
+       caption = state_caption) +
+  plot_theme
+
+print(p_trans)
+```
+
+## Figure 3: Exposure summary — partnership and spousal support
+
+```{r fig3-exposure, eval=TRUE, fig.width=10, fig.height=8}
+exposure_vars <- c("Less than supportive partner \n vs no partner",
+                   "Supportive partner \n vs no partner")
+
+init_exp <- init_combined %>%
+  filter(varname %in% exposure_vars) %>%
+  mutate(Panel = "Initial state", Label = State)
+
+trans_exp <- trans_combined %>%
+  filter(varname %in% exposure_vars,
+         Direction %in% c("Toward HICP", "Recovery from HICP")) %>%
+  mutate(Panel = Direction, Label = Transition)
+
+exp_combined <- bind_rows(init_exp, trans_exp) %>%
+  mutate(Panel = factor(Panel,
+                        levels = c("Initial state",
+                                   "Toward HICP",
+                                   "Recovery from HICP")))
+
+p_exposure <- ggplot(exp_combined,
+                     aes(x = Q_bar, y = Label, colour = Model,
+                         xmin = CI_lo, xmax = CI_hi,
+                         shape = varname)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_pointrange(position = position_dodge(width = 0.6), size = 0.5) +
+  facet_wrap(~ Panel, ncol = 1, scales = "free_y") +
+  labs(title   = "Partnership & spousal support — pooled log-ORs (TE vs DE)",
+       x       = "Log-OR (95% CI)", y = NULL, caption = state_caption,
+       colour  = "Model", shape = "Category") +
+  plot_theme
+
+print(p_exposure)
+```
