@@ -286,6 +286,52 @@ create_pain_locations_count <- function(data, varName, variables) {
 #  END OF DERIVED VARIABLES
 #########################################################################
 
+## Health Impact lv PARAMETRISATION using cluster's medoids
+##############################################################
+categorize_wave <- function(data, var_name, ref_centers) {
+  # Create new categorical variable name
+  cat_var_name <- paste0(var_name, "_cat")
+  
+  # Initialize all values as NA
+  data[[cat_var_name]] <- NA
+  
+  # Set all values below 0.1 to category 0 (the "zero" score), but keep NAs as NA
+  data[[cat_var_name]][data[[var_name]] < 0.1 & !is.na(data[[var_name]])] <- 0
+  
+  # Get non-zero indices (values >= 0.1), excluding NAs.
+  # Threshold 0.1 excludes artefactual near-zero scores: under partial scalar
+  # invariance, freed item intercepts (lifta, hlthlm) produce scores ~0.00079
+  # for respondents with genuinely zero health impact. These are structural
+  # zeros on the IRT scale and are assigned category 0 above, not clustered.
+  nonzero_indices <- which(data[[var_name]] >= 0.1 & !is.na(data[[var_name]]))
+  
+  if(length(nonzero_indices) > 0) {
+    # Get the non-zero values
+    wave_nonzero <- data[[var_name]][nonzero_indices]
+    
+    # For each observation, find the closest reference center using Manhattan distance
+    clusters <- sapply(wave_nonzero, function(x) {
+      # Calculate Manhattan distances to all reference centers
+      # data here is *univariate* therefore we can calculate distances directly from raw data to medoids
+      manhattan_distances <- abs(x - ref_centers)  # Manhattan distance for 1D data
+      # Return the cluster number of the closest center
+      which.min(manhattan_distances)
+    })
+    
+    # Assign cluster numbers
+    data[[cat_var_name]][nonzero_indices] <- clusters
+  }
+  
+  # NA values in the original variable will remain NA in the categorical variable
+  # because we initialized all values as NA and only modified non-NA entries
+  data[[cat_var_name]] <- as.integer(data[[cat_var_name]])
+  return(data)
+}
+
+####################################################################
+## END OF Health Impact lv PARAMETRISATION
+####################################################################
+
 
 ##########################################################################
 #  TABLE 1 DATAPREP
@@ -925,205 +971,92 @@ calc_transition_matrix_prob <- function(model) {
 ##                                X_n only, not on the subject's observed responses Y_n.
 ##                                Time t=1 is a placeholder (all zeros).
 ##
-## The true smoothed marginal posterior P(U_t = j | Y_n) — the quantity you want
-## for entropy/APP/classification error — lives in the internal array V computed
-## by prob_post_cov() inside the forward-backward algorithm. lmestDecoding()
-## computes V to build Ul (decoded states) but discards V before returning.
+## The true smoothed marginal posterior P(U_t = j | Y_n) can be found in the internal 
+## array V computed by prob_post_cov() inside the forward-backward algorithm. 
+## lmestDecoding() computes V to build Ul (decoded states) but discards V before 
+## returning.
 ## See: https://github.com/cran/LMest/blob/master/R/lmestDecoding.R
 ##
-## get_posterior_V() recovers V by replaying the lmestDecoding.LMlatent
-## preamble (data extraction, formula parsing, long→wide reshape) and then
-## running the same lk_comp_latent → prob_post_cov call sequence, returning
-## both V and a consistent Ul derived from it.
-##
-## Why not use model$Piv + Chapman-Kolmogorov via model$PI?
-## ---------------------------------------------------------
-## The naive forward-propagation:
-##   post_t2[n,] = Piv[n,] %*% PI[,,n,2]
-## gives the PRIOR PREDICTIVE P(U_2 = j | X_n), not the posterior P(U_2 = j | Y_n).
-## For subjects with clear observed trajectories the two diverge substantially.
-## Entropy computed from prior predictives is attenuated toward the marginal class
-## proportions and will misrepresent the true state separation.
 ################################################################################
 
-# get_posterior_V: recover smoothed marginal posteriors V from a fitted LMlatent
-# ------------------------------------------------------------------------------
-# Replicates the internal preamble of lmestDecoding.LMlatent exactly, then runs
-# the full forward-backward pass to obtain V[n, k, TT] = P(U_t = j | Y_n).
-# Also returns Ul (n × TT decoded state matrix) computed directly from V, so
-# decoded assignments and posterior probabilities are from the same FB pass.
+# compute_app(model, label)
 #
-# Source reference (lmestDecoding.LMlatent preamble + internal call sequence):
-#   https://github.com/cran/LMest/blob/master/R/lmestDecoding.R
+# Returns a tibble of Average Posterior Probabilities (APP) per state,
+# computed from the smoothed marginal posteriors across all 3 waves.
 #
-# Internal functions used (via :::, not exported by LMest):
-#   LMest:::getResponses         — extracts response matrix Y from data + formula
-#   LMest:::getLatent            — extracts Xinitial, Xtrans from latent formula
-#   LMest:::long2matrices.internal — reshapes long-format data to wide (n × TT)
-#   LMest:::lk_comp_latent       — forward pass: computes log-likelihood components
-#                                   Phi (emission), L (forward probs), pv (scaling)
-#   LMest:::prob_post_cov        — forward-backward smoother: returns V, U, etc.
+# APP_s = mean P(U_t = s | data) for all (subject × wave) observations
+# whose modal assignment is state s. Values well above 1/k = 0.25 indicate
+# that the model assigns observations to states with confidence. The
+# conventional threshold is APP > 0.70 per state.
 #
-# FRAGILITY NOTE: depends on unexported LMest internals. Tested on LMest 2.1.x.
-# Verify function signatures after any LMest package update.
+# All 3 waves are stacked rather than using wave 1 only: wave-1 posteriors
+# are sharpest (initialisation advantage); waves 2-3 are more diffuse as
+# uncertainty accumulates. Using all waves gives a fair average.
 #
-# Args:
-#   model  — a fitted LMlatent object (output of lmest() with covariates)
+# The forward-backward pass (lk_comp_latent + prob_post_cov) is the same
+# computation that lmestDecoding performs internally but discards — there
+# is no public LMest API to retrieve the posteriors V directly.
 #
-# Returns: list with
-#   V   [n × k × TT]  smoothed marginal posterior P(U_t = j | Y_n)
-#   Ul  [n × TT]      decoded states: Ul[n,t] = argmax_j V[n,j,t]
-get_posterior_V <- function(model) {
-
-  stopifnot(inherits(model, "LMlatent"))
-
-  # ------------------------------------------------------------------
-  # Step 1: replicate lmestDecoding.LMlatent data-extraction preamble
-  # (lines ~20-80 of lmestDecoding.R)
-  # ------------------------------------------------------------------
-  newdata  <- model$data
-  id       <- attributes(model)$id
-  tv       <- attributes(model)$time
-  tv.which <- attributes(model)$whichtv
-  id.which <- attributes(model)$whichid
-  data.new <- newdata[, -c(tv.which, id.which), drop = FALSE]
-
-  # Extract response matrix Y (items × waves) from the responses formula
-  temp <- LMest:::getResponses(
-    data    = data.new,
-    formula = attributes(model)$responsesFormula
-  )
-  Y <- temp$Y
-
-  # Extract covariate matrices for initial-state and transition components
-  temp2 <- LMest:::getLatent(
-    data      = data.new,
-    responses = attributes(model)$responsesFormula,
-    latent    = attributes(model)$latentFormula
-  )
-  Xinitial <- temp2$Xinitial
-  Xtrans   <- temp2$Xtrans
-
-  # Reshape from long (n_obs × p) to wide (n_subjects × TT × p)
-  tmp <- LMest:::long2matrices.internal(
-    Y         = Y,
-    id        = id,
-    time      = tv,
-    yv        = rep(1, max(id)),
-    Xinitial  = Xinitial,
-    Xmanifest = NULL,
-    Xtrans    = Xtrans
-  )
-  Y <- tmp$Y   # now [n × TT × n_items]
-
-  # Handle missingness: build binary mask R and zero-fill Y in-place
-  # (lmest internally treats missing items as non-informative via R)
-  miss <- any(is.na(Y))
-  R    <- if (miss) {
-    M <- 1L * (!is.na(Y))
-    Y[is.na(Y)] <- 0L
-    M
-  } else NULL
-
-  n  <- dim(Y)[1]
-  TT <- dim(Y)[2]
-  k  <- model$k
-  Psi <- model$Psi   # emission parameters [n_categories × k × n_items]
-  Piv <- model$Piv   # [n × k] subject-specific initial probs from covariates
-  PI  <- model$PI    # [k × k × n × TT] model-implied conditionals
-
-  # ------------------------------------------------------------------
-  # Step 2: forward pass
-  # lk_comp_latent runs the forward algorithm and returns:
-  #   Phi [n × k × TT]  emission probabilities P(Y_t | U_t = j)
-  #   L   [n × k × TT]  scaled forward probabilities α_t(j)
-  #   pv  [n × TT]      per-subject per-wave scaling constants
-  # ------------------------------------------------------------------
-  out_lk <- LMest:::lk_comp_latent(
-    Y, R, rep(1, n), Piv, PI, Psi, k, fort = TRUE
-  )
-
-  # ------------------------------------------------------------------
-  # Step 3: forward-backward smoother
-  # prob_post_cov runs the backward pass and combines with forward probs to give:
-  #   V  [n × k × TT]   smoothed marginal: V[n, j, t] = P(U_t = j | Y_n)
-  #   U  [k × k × n × TT]  smoothed joint:  U[i,j,n,t] = P(U_{t-1}=i, U_t=j | Y_n)
-  #                         (this is the quantity used in the M-step, NOT model$PI)
-  # ------------------------------------------------------------------
-  out_fb <- LMest:::prob_post_cov(
-    Y, rep(1, n), Psi, Piv, PI,
-    out_lk$Phi, out_lk$L, out_lk$pv,
-    fort = TRUE
-  )
-
-  V <- out_fb$V   # [n × k × TT] — this is what lmestDecoding computes but discards
-
-  # Reconstruct Ul from V (mirrors the decoder inside lmestDecoding.LMlatent)
-  # Using which.max per subject per wave ensures Ul is consistent with V
-  Ul <- matrix(0L, n, TT)
-  for (i in seq_len(n)) for (t in seq_len(TT)) Ul[i, t] <- which.max(V[i, , t])
-
-  list(V = V, Ul = Ul)
-}
-
-
-# diagnose_model: entropy, APP, and classification error from smoothed posteriors
-# ------------------------------------------------------------------------------
-# Standard LTA model-quality metrics (Nylund-Gibson & Choi 2018):
-#
-#   Entropy  = 1 + Σ p·log(p) / (N·log(k))        ranges [0, 1], higher = sharper
-#   Class err = 1 − mean(max posterior per row)     ranges [0, 1], lower = sharper
-#   APP_s    = mean P(U_t=s | Y_n) for all (n,t) where argmax = s
-#
-# All three metrics are computed across ALL TT=3 waves by stacking V[,,1],
-# V[,,2], V[,,3] into a 3n×k matrix. Using all waves rather than wave 1 only
-# gives unbiased estimates: wave-1 posteriors are sharpest (initialisation);
-# waves 2-3 are more diffuse as uncertainty accumulates, and ignoring them
-# produces optimistically inflated entropy and APP.
-#
-# Decoded assignments (Ul) come from get_posterior_V() and are guaranteed
-# consistent with V — both derive from the same forward-backward pass.
+# FRAGILITY NOTE: depends on unexported LMest internals (:::).
+# Tested on LMest 2.1.x. Verify after any LMest package update.
 #
 # Args:
 #   model  — fitted LMlatent object
 #   label  — character string for printed header
 #
-# Returns (invisibly): list(entropy, class_err, app)
-diagnose_model <- function(model, label) {
+# Returns (invisibly): tibble with columns Model, State, APP, Flag
+#
+compute_app <- function(model, label) {
 
-  fb          <- get_posterior_V(model)
-  V           <- fb$V              # [n × k × TT]
-  all_decoded <- as.vector(fb$Ul)  # n×TT matrix, column-major → 3n vector
-                                   # order: all t=1 first, then t=2, then t=3
+  stopifnot(inherits(model, "LMlatent"))
 
-  # Stack all TT waves: V[,,t] is n×k; rbind gives 3n×k in same t-order as Ul
-  all_posts <- do.call(rbind, lapply(seq_len(dim(V)[3]), function(t) V[, , t]))
+  # ── recover smoothed posteriors V [n × k × TT] ──────────────────────────────
+  newdata  <- model$data
+  id       <- attributes(model)$id
+  tv       <- attributes(model)$time
+  data.new <- newdata[, -c(attributes(model)$whichtv,
+                            attributes(model)$whichid), drop = FALSE]
 
-  k   <- model$k
-  eps <- 1e-10   # prevent log(0); negligible effect on probabilities near 0
+  Y <- LMest:::getResponses(data.new, attributes(model)$responsesFormula)$Y
 
-  # APP: for each state s, mean posterior among (subject × wave) observations
-  # whose modal class is s. Values should be well above 1/k (= 0.25 here).
+  tmp2 <- LMest:::getLatent(data.new,
+                             attributes(model)$responsesFormula,
+                             attributes(model)$latentFormula)
+
+  tmp <- LMest:::long2matrices.internal(
+    Y = Y, id = id, time = tv, yv = rep(1, max(id)),
+    Xinitial = tmp2$Xinitial, Xmanifest = NULL, Xtrans = tmp2$Xtrans
+  )
+  Y <- tmp$Y   # [n × TT × n_items]
+
+  miss <- any(is.na(Y))
+  R    <- if (miss) { M <- 1L * (!is.na(Y)); Y[is.na(Y)] <- 0L; M } else NULL
+
+  n      <- dim(Y)[1]
+  k      <- model$k
+  out_lk <- LMest:::lk_comp_latent(Y, R, rep(1, n), model$Piv, model$PI, model$Psi, k, fort = TRUE)
+  V      <- LMest:::prob_post_cov(Y, rep(1, n), model$Psi, model$Piv, model$PI,
+                                   out_lk$Phi, out_lk$L, out_lk$pv, fort = TRUE)$V
+
+  # ── stack waves, compute modal assignment, compute APP ───────────────────────
+  all_posts   <- do.call(rbind, lapply(seq_len(dim(V)[3]), function(t) V[, , t]))
+  all_decoded <- apply(all_posts, 1, which.max)
+
   app <- sapply(seq_len(k), function(s) {
     in_s <- which(all_decoded == s)
-    if (length(in_s) == 0) return(NA)
+    if (length(in_s) == 0) return(NA_real_)
     mean(all_posts[in_s, s])
   })
 
-  # Classification error: mean proportion of posterior mass NOT on modal class
-  class_err <- round(1 - mean(apply(all_posts, 1, max)), 3)
+  result <- tibble(
+    Model = label,
+    State = paste("State", seq_len(k)),
+    APP   = round(app, 3),
+    Flag  = ifelse(app < 0.70, "< 0.70 — borderline", "OK")
+  )
 
-  # Entropy: normalised information content; 1 = perfectly sharp, 0 = uniform
-  entropy_val <- 1 + sum(all_posts * log(all_posts + eps)) /
-                     (nrow(all_posts) * log(k))
-
-  cat(sprintf("\n--- %s diagnostics (3-wave smoothed posteriors) ---\n", label))
-  cat(sprintf("Entropy:            %.3f  (>0.80 preferred)\n", entropy_val))
-  cat(sprintf("Classification err: %.3f  (<0.30 preferred)\n", class_err))
-  cat(sprintf("APP per state:      %s\n",
-              paste(round(app, 3), collapse = " | ")))
-
-  invisible(list(entropy = entropy_val, class_err = class_err, app = app))
+  print(knitr::kable(result, caption = sprintf("APP — %s (all 3 waves)", label)))
+  invisible(result)
 }
 
 
@@ -1263,9 +1196,8 @@ initial_prob_Diagnostics <- function(model, var_names = NULL, N_obs_states, conf
 ## Transitions regression Diagnostics
 ##################################
 
-#########################################################################
-########################### MULTILOGIT  MODEL
-#########################################################################
+#### MULTILOGIT  MODEL
+######################
 
 transition_Diagnostics_multilogit <- function(model, start_state, covariates_of_interest, N_obs_trans, conf_level = 0.95) {
   k <- model$k
@@ -1472,6 +1404,11 @@ lmestSearch_plot <- function(all_lks, k = 4, k_multiplier = 3, plot_hist = TRUE)
 ################ END OF LMEST SEARCH DIAGNOSTIC FUNCTION
 ################################################################################
 
+################################################################################
+################ BEGINNING OF LMEST PARALLEL SEED FUNCTION
+################################################################################
+
+
 run_lmest_parallel_seeds <- function(config, data, n_reps = 200, ntry = 1, n_cores = 8,
                                      modBasic = 1, start = 1, maxit = 10000, k = 4, 
                                      tol = 1e-8, fort = TRUE, out_SE = FALSE,
@@ -1608,59 +1545,10 @@ run_lmest_parallel_seeds <- function(config, data, n_reps = 200, ntry = 1, n_cor
     plot = p1
   ))
 }
-##############################################################
-## Health Impact lv PARAMETRISATION using cluster's medoids
-##############################################################
-
-
-categorize_wave <- function(data, var_name, ref_centers) {
-  # Create new categorical variable name
-  cat_var_name <- paste0(var_name, "_cat")
-  
-  # Initialize all values as NA
-  data[[cat_var_name]] <- NA
-  
-  # Set all values below 0.1 to category 0 (the "zero" score), but keep NAs as NA
-  data[[cat_var_name]][data[[var_name]] < 0.1 & !is.na(data[[var_name]])] <- 0
-  
-  # Get non-zero indices (values >= 0.1), excluding NAs.
-  # Threshold 0.1 excludes artefactual near-zero scores: under partial scalar
-  # invariance, freed item intercepts (lifta, hlthlm) produce scores ~0.00079
-  # for respondents with genuinely zero health impact. These are structural
-  # zeros on the IRT scale and are assigned category 0 above, not clustered.
-  nonzero_indices <- which(data[[var_name]] >= 0.1 & !is.na(data[[var_name]]))
-  
-  if(length(nonzero_indices) > 0) {
-    # Get the non-zero values
-    wave_nonzero <- data[[var_name]][nonzero_indices]
-    
-    # For each observation, find the closest reference center using Manhattan distance
-    clusters <- sapply(wave_nonzero, function(x) {
-      # Calculate Manhattan distances to all reference centers
-      # data here is *univariate* therefore we can calculate distances directly from raw data to medoids
-      manhattan_distances <- abs(x - ref_centers)  # Manhattan distance for 1D data
-      # Return the cluster number of the closest center
-      which.min(manhattan_distances)
-    })
-    
-    # Assign cluster numbers
-    data[[cat_var_name]][nonzero_indices] <- clusters
-  }
-  
-  # NA values in the original variable will remain NA in the categorical variable
-  # because we initialized all values as NA and only modified non-NA entries
-  data[[cat_var_name]] <- as.integer(data[[cat_var_name]])
-  return(data)
-}
-
-####################################################################
-## END OF Health Impact lv PARAMETRISATION
-####################################################################
 
 ##############################################################
-## BEGIN OF MICE RELATED FUNCTIONS
+## BEGIN OF MICE RELATED FUNCTIONS ( depends on categorize_wave() )
 ##############################################################
-
 
 IMPACT_parametrisation_to_mice_objs <- function(mids_object, ref_centers) {
   
