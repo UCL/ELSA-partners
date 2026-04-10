@@ -1371,214 +1371,7 @@ transition_Diagnostics_multilogit <- function(model, start_state, covariates_of_
   
   return(df)
 }
-#########################################################################
-########################### DIFFLOGIT MODEL
-#########################################################################
 
-transition_table_Diagnostics_difflogit <- function(model, start_state, covariates_of_interest, N_obs_trans, conf_level = 0.95) {
-  # Check that model uses difflogit parametrization
-  if (model$paramLatent != "difflogit") {
-    stop("This function is for difflogit models only. Use transition_table_Diagnostics for multilogit models.")
-  }
-  
-  k <- model$k
-  all_states <- 1:k
-  
-  # In difflogit, Ga is a list with two elements:
-  # Ga[[1]] contains intercepts [states x destination_states matrix]
-  # Ga[[2]] contains covariate effects [covariates x destination_states matrix]
-  
-  # Get intercepts for the start_state
-  intercept_mat <- model$Ga[[1]]
-  intercept_se_mat <- model$seGa[[1]]
-  
-  # Get covariate effects
-  covar_mat <- model$Ga[[2]]
-  covar_se_mat <- model$seGa[[2]]
-  
-  # Get available destination states from column names
-  available_dests <- as.numeric(colnames(covar_mat))
-  
-  # Determine which destinations are available from this start state
-  # In difflogit, not all transitions may be modeled
-  dest_states <- setdiff(available_dests, start_state)
-  
-  if (length(dest_states) == 0) {
-    warning(paste("No valid destination states found for start state", start_state))
-    return(NULL)
-  }
-  
-  # Get all covariate names
-  all_covars <- rownames(covar_mat)
-  
-  if (is.null(all_covars) || length(all_covars) == 0) {
-    stop("No covariates found in difflogit model")
-  }
-  
-  # Handle covariate selection
-  if (is.character(covariates_of_interest)) {
-    covariate_indices <- match(covariates_of_interest, all_covars)
-    var_names <- covariates_of_interest
-  } else if (is.numeric(covariates_of_interest)) {
-    covariate_indices <- covariates_of_interest
-    var_names <- all_covars[covariate_indices]
-  }
-  
-  # Check for invalid indices
-  if (any(is.na(covariate_indices))) {
-    invalid <- covariates_of_interest[is.na(covariate_indices)]
-    stop(paste("Covariates not found:", paste(invalid, collapse = ", ")))
-  }
-  
-  # Get N_obs for transitions
-  z_crit <- qnorm((1 + conf_level) / 2)
-  from_label <- paste("From State", start_state)
-  
-  # Build diagnostics for each destination state
-  df_list <- lapply(dest_states, function(dest) {
-    dest_label <- paste("To State", dest)
-    
-    # Get N_obs for this specific transition
-    if (!is.null(N_obs_trans) && from_label %in% rownames(N_obs_trans) && 
-        dest_label %in% colnames(N_obs_trans)) {
-      n_obs <- N_obs_trans[from_label, dest_label]
-    } else {
-      n_obs <- NA
-      warning(paste("Could not find N_obs for transition", start_state, "->", dest))
-    }
-    
-    # Find column index for this destination in the coefficient matrices
-    dest_col <- which(colnames(covar_mat) == as.character(dest))
-    
-    if (length(dest_col) == 0) {
-      # This destination is not in the coefficient matrix
-      # This can happen if certain transitions are not modeled
-      return(NULL)
-    }
-    
-    # Get coefficients and SEs for selected covariates
-    coef_vals <- covar_mat[covariate_indices, dest_col]
-    
-    # Get standard errors
-    if (!is.null(covar_se_mat) && ncol(covar_se_mat) >= dest_col) {
-      se_vals <- covar_se_mat[covariate_indices, dest_col]
-    } else {
-      se_vals <- rep(NA, length(covariate_indices))
-    }
-    
-    # Create dataframe for this destination
-    data.frame(
-      varname = var_names,
-      Transition = paste(start_state, "->", dest),
-      N_obs_trans = n_obs,
-      Coefficient = round(coef_vals, 3),
-      StdError = round(se_vals, 3),
-      t_value = round(coef_vals / se_vals, 2),
-      CI_lower = round(coef_vals - z_crit * se_vals, 3),
-      CI_upper = round(coef_vals + z_crit * se_vals, 3),
-      stringsAsFactors = FALSE
-    )
-  })
-  
-  # Remove NULL entries (destinations not in coefficient matrix)
-  df_list <- df_list[!sapply(df_list, is.null)]
-  
-  if (length(df_list) == 0) {
-    warning(paste("No valid transitions found for start state", start_state))
-    return(NULL)
-  }
-  
-  # Combine all dataframes
-  df <- do.call(rbind, df_list)
-  
-  # Calculate EPV (Events per parameter)
-  # For difflogit: count intercept + all covariates
-  p_per_transition <- length(all_covars) + 1  # covariates + intercept
-  df$EPV <- round(df$N_obs_trans / p_per_transition, 2)
-  
-  # Add significance and diagnostic flags (same criteria as multilogit)
-  df <- df %>% 
-    mutate(
-      Signif = case_when(
-        is.na(StdError) ~ "NA",
-        abs(t_value) > 2.58 ~ "***",
-        abs(t_value) > 1.96 ~ "**",
-        abs(t_value) > 1.64 ~ "*",
-        TRUE ~ ""
-      ),
-      Sep_Flag = case_when(
-        is.na(StdError) ~ "No SE",
-        is.na(N_obs_trans) ~ "Unknown N",
-        abs(Coefficient) > 10 ~ "!!!",
-        abs(Coefficient) > 5 & StdError > 2 ~ "!!",
-        abs(Coefficient) > 5 ~ "!",
-        EPV < 10 ~ "EPV < 10 !!",
-        EPV < 20 ~ "EPV < 20 !",
-        StdError > 5 ~ "Extreme SE!",
-        TRUE ~ "OK"
-      ),
-      Comment = case_when(
-        is.na(StdError) ~ "WARNING: No SE available",
-        is.na(N_obs_trans) ~ "WARNING: N_obs not found",
-        is.infinite(Coefficient) ~ "WARNING: Inf. coef - compl. separation",
-        Sep_Flag == "!!!" ~ "WARNING: Separation likely",
-        Sep_Flag == "!!" ~ "WARNING: Quasi-separation",
-        Sep_Flag == "!" ~ "WARNING: Very large coef",
-        StdError > 5 ~ "WARNING: Extreme SE!",
-        EPV < 10 ~ "WARNING: EPV < 10 overfitting",
-        N_obs_trans < 20 ~ "WARNING: < 20 obs",
-        N_obs_trans < 30 ~ "WARNING: < 30 obs",
-        EPV < 20 ~ "Low EPV: coef requires shrinkage",
-        StdError > 1 ~ "CAUTION: SE > 1",
-        abs(t_value) >= 2 & StdError <= 1 ~ "Reliable",
-        abs(t_value) >= 1.6 & StdError <= 1 ~ "Marginal",
-        abs(t_value) < 1.6 & StdError <= 1 ~ "n.s",
-        TRUE ~ "Check_manually"
-      )
-    )
-  
-  # Reorder columns for better readability
-  df <- df %>% 
-    select(varname, Transition, N_obs_trans, Coefficient, StdError, t_value, 
-           CI_lower, CI_upper, EPV, Sep_Flag, Signif, Comment) %>% 
-    as_tibble()
-  
-  return(df)
-}
-
-# Helper function to get all transitions for difflogit model
-get_all_transitions_difflogit <- function(model, covariates_of_interest, N_obs_trans, conf_level = 0.95) {
-  if (model$paramLatent != "difflogit") {
-    stop("This function is for difflogit models only")
-  }
-  
-  k <- model$k
-  all_results <- list()
-  
-  for (start_state in 1:k) {
-    tryCatch({
-      result <- transition_table_Diagnostics_difflogit(
-        model = model,
-        start_state = start_state,
-        covariates_of_interest = covariates_of_interest,
-        N_obs_trans = N_obs_trans,
-        conf_level = conf_level
-      )
-      all_results[[paste0("From_State_", start_state)]] <- result
-    }, error = function(e) {
-      warning(paste("Could not compute transitions from state", start_state, ":", e$message))
-    })
-  }
-  
-  # Combine all results
-  if (length(all_results) > 0) {
-    combined <- do.call(rbind, all_results)
-    rownames(combined) <- NULL
-    return(combined)
-  } else {
-    return(NULL)
-  }
-}
 
 ##############################################################
 ## END OF LTA transition table
@@ -1907,26 +1700,6 @@ IMPACT_parametrisation_to_mice_objs <- function(mids_object, ref_centers) {
   return(new_mids)
 }
 
-ssupport_median_parametrisation_to_mids <- function(mids_object, median_value) {
-  require(progress)
-  
-  long_data <- mice::complete(mids_object, action = "long", include = TRUE)
-  
-  # Create categorical variable ssupport6_cat for all rows with non-missing ssupport6
-  long_data <- long_data %>%
-    mutate(ssupport6_cat = case_when(
-      is.na(ssupport6) & partner == 0 ~ "No partner",
-      ssupport6 <= median_value ~ "Above median SS",
-      ssupport6 > median_value ~ "Below median SS",
-      TRUE ~ NA_character_) %>% as.factor
-    )
-  
-  
-  # Convert back to mids object
-  new_mids <- as.mids(long_data, .imp = ".imp", .id = ".id")
-  return(new_mids)
-}
-
 # Function to add wealth quintiles to MICE object
 add_wealth_quintiles_to_mice <- function(mids_object, w4quintile_breaks_log) {
   
@@ -2236,8 +2009,13 @@ check_state_ordering <- function(log_df, label, n_imp) {
 #   t_pool     — pooled t-statistic: Q_bar / SE_pool
 #   nu_BR      — Barnard-Rubin degrees of freedom: (m-1) × (1 + U_bar/((1+1/m)×B))²
 #                Large values (>> m-1=21) mean B << U_bar — t approaches normal.
-#                nu_BR = m-1 = 21 means B dominates — correction matters most.
+#                nu_BR = m-1 = 21 means B dominates — correction matters most. (https://doi.org/10.1093/biomet/86.4.948)
 #   p_pool     — two-sided p-value from t(nu_BR) distribution
+#   fmi        — fraction of missing information: (r + 2/(df+3)) / (r + 1)
+#   r          — relative increase in variance due to missingness: (1+1/m) × B / U_bar  (p. 76, equation 3.1.7, https://onlinelibrary.wiley.com/doi/epdf/10.1002/9780470316696)
+#   lambda     — proportion of total variance due to missingness: (1+1/m) × B / T_var
+#                fmi ≈ lambda ≈ 1: estimate driven almost entirely by imputation
+#                uncertainty (sparse transition or near-collinear covariate). van Buuren, S. (2018). Flexible Imputation of Missing Data, Second Edition (2nd ed.). Chapman and Hall/CRC. https://doi.org/10.1201/9780429492259
 #   n_NA_SE    — number of imputations where SE was NaN (Hessian inversion failed).
 #                0 = all SEs valid. High values make SE_pool unreliable.
 #   N_obs      — mean observed count in the from-state (transitions) or
@@ -2250,7 +2028,7 @@ check_state_ordering <- function(log_df, label, n_imp) {
 #   Comment    — "Reliable" (p<0.05, EPV OK), "n.s", "Exclude — low EPV",
 #                "Unreliable SE"
 # ------------------------------------------------------------------------------
-pool_summaries <- function(label, n_imp, path) {
+pool_summaries <- function(label, n_imp, path, min_EPV = 20) {
 
   cat(sprintf("\nPooling %s across %d imputations...\n", label, n_imp))
 
@@ -2260,113 +2038,169 @@ pool_summaries <- function(label, n_imp, path) {
     readRDS(f)
   })
 
-  trans_all <- map_dfr(summaries_list, ~ .x$transitions, .id = "imp") %>%
-    mutate(imp = as.integer(imp))
+  EPV_THRESHOLD <- min_EPV  # minimum EPV to treat a pooled coefficient as estimable
 
-  EPV_THRESHOLD <- 10  # minimum EPV to treat a pooled coefficient as estimable
+  # Helper: apply mice::pool.scalar() to one group and return a one-row tibble.
+  # pool.scalar() expects q = vector of estimates, u = vector of variances (SE²).
+  # It returns Q̄, Ū, B, T, df (Barnard-Rubin), fmi. NaN SEs are excluded via
+  # na.rm — pool.scalar() itself propagates NA, so we strip them before calling.
+  apply_pool_scalar <- function(df, obs_col) {
+    q   <- df$Coefficient
+    u   <- df$StdError^2
+    ok  <- !is.na(u)
+    # Guard: pool.scalar() requires at least 2 valid estimates
+    if (sum(ok) < 2) {
+      return(tibble(
+        m       = nrow(df),
+        Q_bar   = NA_real_, U_bar   = NA_real_, B      = NA_real_,
+        T_var   = NA_real_, SE_pool = NA_real_, t_pool = NA_real_,
+        nu_BR   = NA_real_, p_pool  = NA_real_, fmi    = NA_real_,
+        r       = NA_real_, lambda  = NA_real_,
+        n_NA_SE = sum(!ok),
+        N_obs   = mean(df[[obs_col]], na.rm = TRUE),
+        EPV     = mean(df$EPV,        na.rm = TRUE)
+      ))
+    }
+    ps     <- mice::pool.scalar(q[ok], u[ok])
+    m_ok   <- sum(ok)
+    t_stat <- ps$qbar / sqrt(ps$t)
+    nu     <- ps$df
+    tibble(
+      m       = nrow(df),
+      Q_bar   = ps$qbar,
+      U_bar   = ps$ubar,
+      B       = ps$b,
+      T_var   = ps$t,
+      SE_pool = sqrt(ps$t),
+      t_pool  = t_stat,
+      nu_BR   = nu,
+      p_pool  = 2 * pt(-abs(t_stat), df = nu),
+      fmi     = ps$fmi,
+      r       = (1 + 1/m_ok) * ps$b / ps$ubar,   # relative increase in variance due to missingness
+      lambda  = (1 + 1/m_ok) * ps$b / ps$t,       # proportion of total variance due to missingness
+      n_NA_SE = sum(!ok),
+      N_obs   = mean(df[[obs_col]], na.rm = TRUE),
+      EPV     = mean(df$EPV,        na.rm = TRUE)
+    )
+  }
 
-  trans_pooled <- trans_all %>%
+  add_flags <- function(df) {
+    df %>% mutate(
+      Sep_Flag = case_when(
+        EPV < EPV_THRESHOLD ~ sprintf("LOW EPV=%.1f", EPV),
+        n_NA_SE > 0         ~ sprintf("SE NA in %d/%d imps", n_NA_SE, m),
+        TRUE                ~ "OK"
+      ),
+      Signif = case_when(
+        EPV < EPV_THRESHOLD ~ "",
+        abs(Q_bar) > 8      ~ "!!!",
+        p_pool < 0.01       ~ "***",
+        p_pool < 0.05       ~ "**",
+        p_pool < 0.10       ~ "*",
+        TRUE                ~ ""
+      ),
+      Comment = case_when(
+        EPV < EPV_THRESHOLD ~ sprintf("Exclude — low EPV (%.1f)", EPV),
+        n_NA_SE > 0         ~ "Unreliable SE",
+        p_pool < 0.05       ~ "Reliable",
+        TRUE                ~ "n.s"
+      )
+    )
+  }
+
+  trans_pooled <- map_dfr(summaries_list, ~ .x$transitions, .id = "imp") %>%
     group_by(varname, Transition) %>%
-    summarise(
-      m        = n(),
-      Q_bar    = mean(Coefficient,  na.rm = TRUE),
-      U_bar    = mean(StdError^2,   na.rm = TRUE),
-      B        = var(Coefficient,   na.rm = TRUE),
-      T_var    = U_bar + (1 + 1/m) * B,
-      SE_pool  = sqrt(T_var),
-      t_pool   = Q_bar / SE_pool,
-      nu_BR    = (m - 1) * (1 + U_bar / ((1 + 1/m) * B))^2,
-      p_pool   = 2 * pt(-abs(t_pool), df = nu_BR),
-      n_NA_SE  = sum(is.na(StdError)),
-      N_obs    = mean(N_obs_trans,   na.rm = TRUE),
-      EPV      = mean(EPV,           na.rm = TRUE),
-      .groups  = "drop"
-    ) %>%
-    mutate(
-      Sep_Flag = case_when(
-        EPV < EPV_THRESHOLD ~ sprintf("LOW EPV=%.1f", EPV),
-        n_NA_SE > 0         ~ sprintf("SE NA in %d/%d imps", n_NA_SE, m),
-        TRUE                ~ "OK"
-      ),
-      Signif = case_when(
-        EPV < EPV_THRESHOLD ~ "",
-        abs(Q_bar) > 8      ~ "!!!",
-        p_pool < 0.01       ~ "***",
-        p_pool < 0.05       ~ "**",
-        p_pool < 0.10       ~ "*",
-        TRUE                ~ ""
-      ),
-      Comment = case_when(
-        EPV < EPV_THRESHOLD ~ "Exclude — low EPV",
-        n_NA_SE > 0         ~ "Unreliable SE",
-        p_pool < 0.05       ~ "Reliable",
-        TRUE                ~ "n.s"
-      )
-    )
+    group_modify(~ apply_pool_scalar(.x, "N_obs_trans")) %>%
+    ungroup() %>%
+    add_flags()
 
-  init_all <- map_dfr(summaries_list, ~ .x$initial_states, .id = "imp") %>%
-    mutate(imp = as.integer(imp))
-
-  init_pooled <- init_all %>%
+  init_pooled <- map_dfr(summaries_list, ~ .x$initial_states, .id = "imp") %>%
     group_by(varname, State) %>%
-    summarise(
-      m        = n(),
-      Q_bar    = mean(Coefficient,  na.rm = TRUE),
-      U_bar    = mean(StdError^2,   na.rm = TRUE),
-      B        = var(Coefficient,   na.rm = TRUE),
-      T_var    = U_bar + (1 + 1/m) * B,
-      SE_pool  = sqrt(T_var),
-      t_pool   = Q_bar / SE_pool,
-      nu_BR    = (m - 1) * (1 + U_bar / ((1 + 1/m) * B))^2,
-      p_pool   = 2 * pt(-abs(t_pool), df = nu_BR),
-      n_NA_SE  = sum(is.na(StdError)),
-      N_obs    = mean(N_obs_states,  na.rm = TRUE),
-      EPV      = mean(EPV,           na.rm = TRUE),
-      .groups  = "drop"
-    ) %>%
-    mutate(
-      Sep_Flag = case_when(
-        EPV < EPV_THRESHOLD ~ sprintf("LOW EPV=%.1f", EPV),
-        n_NA_SE > 0         ~ sprintf("SE NA in %d/%d imps", n_NA_SE, m),
-        TRUE                ~ "OK"
-      ),
-      Signif = case_when(
-        EPV < EPV_THRESHOLD ~ "",
-        abs(Q_bar) > 8      ~ "!!!",
-        p_pool < 0.01       ~ "***",
-        p_pool < 0.05       ~ "**",
-        p_pool < 0.10       ~ "*",
-        TRUE                ~ ""
-      ),
-      Comment = case_when(
-        EPV < EPV_THRESHOLD ~ "Exclude — low EPV",
-        n_NA_SE > 0         ~ "Unreliable SE",
-        p_pool < 0.05       ~ "Reliable",
-        TRUE                ~ "n.s"
-      )
-    )
+    group_modify(~ apply_pool_scalar(.x, "N_obs_states")) %>%
+    ungroup() %>%
+    add_flags()
 
   list(transitions = trans_pooled, initial_states = init_pooled)
 }
 
 
+# diagnose_barnard_rubin(pooled, label)
+#
+# PURPOSE
+#   A post-pooling audit pass that does two things the pooled table cannot do
+#   conveniently by eye:
+#
+#   (1) Scan for parameters where nu_BR is very small (< 10), signalling that
+#       between-imputation variance B dominates within-imputation variance U_bar.
+#       In that regime the Barnard-Rubin t distribution has heavy tails and the
+#       correct critical value at alpha=0.05 is materially above 1.96 (e.g.
+#       t(10, 0.025) = 2.23, t(5, 0.025) = 2.57).  These parameters have high
+#       imputation uncertainty and should be interpreted with extra caution.
+#
+#   (2) Detect "significance flips": parameters where the naive z-test
+#       (|t_pool| > 1.96, i.e. treating df as infinite) would declare p < 0.05
+#       but the Barnard-Rubin t-test (p_pool = 2*pt(-|t_pool|, df=nu_BR))
+#       does not, or vice versa.
+#
+#       Why this is necessary: the pooled table (pooled_TE / pooled_DE) already
+#       carries nu_BR, p_pool, fmi, r, lambda per row, so an analyst can in
+#       principle read off whether any result is affected.  But with ~84
+#       transition coefficients per model it is impractical to scan for
+#       borderline cases by eye.  This function finds them automatically.
+#
+#       The typical failure mode is anti-conservative inference: a coefficient
+#       with t_pool = -2.00 looks significant under z (1.96 < 2.00), but if
+#       nu_BR = 21 the correct critical value is t(21, 0.025) = 2.08, so the
+#       result is actually non-significant (p_pool ~ 0.058).  This happens when
+#       B is comparable to U_bar for that parameter, meaning the 22 imputations
+#       disagree non-trivially about its magnitude — the extra uncertainty is
+#       captured by the wider t distribution but missed by z.
+#
+# INPUTS
+#   pooled  — list with $transitions (output of pool_summaries())
+#   label   — character string for header (e.g. "TE", "DE")
+#
+# RELATIONSHIP TO pooled_TE / pooled_DE
+#   All columns referenced here (nu_BR, t_pool, p_pool, Sep_Flag) are already
+#   present in the pooled table.  This function adds no new information; it is
+#   a quick-scan convenience that surfaces the rows that warrant attention.
+#   The nu_BR distribution summary (Part 1) is redundant with the table but
+#   useful as a one-line sanity check: nu_BR >> 21 means B << U_bar (good:
+#   imputations agree); nu_BR near 21 means B >> U_bar (bad: imputations
+#   disagree); nu_BR = Inf would indicate pool.scalar was not used.
+#
 diagnose_barnard_rubin <- function(pooled, label) {
 
   cat(sprintf("\n--- Barnard-Rubin df diagnostic: %s ---\n", label))
+  cat("(See pooled table for per-row nu_BR, fmi, r, lambda; this scans for actionable issues)\n")
 
   trans <- pooled$transitions
 
-  cat("\nnu_BR distribution (transitions):\n")
+  # Part 1: distribution of nu_BR
+  # nu_BR >> 21 = imputations agree well (B << U_bar), t approx normal -- reassuring.
+  # nu_BR near 21 = imputations disagree (B >> U_bar) -- inspect those rows.
+  # nu_BR < 10 = heavy tails; critical value at alpha=0.05 exceeds 2.23.
+  cat("\nnu_BR distribution (transitions) -- values >> 21 are good; values near/below 21 warrant inspection:\n")
   print(summary(trans$nu_BR))
 
   low_df <- trans %>% filter(nu_BR < 10)
   if (nrow(low_df) > 0) {
-    cat(sprintf("\n%d parameter(s) with nu_BR < 10 (critical value > 2.23):\n", nrow(low_df)))
+    cat(sprintf(
+      "\n%d parameter(s) with nu_BR < 10 (critical value at alpha=0.05 exceeds 2.23):\n",
+      nrow(low_df)
+    ))
     print(low_df %>% select(varname, Transition, nu_BR, t_pool, p_pool, Sep_Flag))
   } else {
-    cat("  ✓ All nu_BR >= 10 — Barnard-Rubin correction has modest impact.\n")
+    cat("  All nu_BR >= 10 -- Barnard-Rubin df correction has modest impact on critical values.\n")
   }
 
+  # Part 2: significance flip detection
+  # sig_z = whether |t_pool| > 1.96 (z-test, infinite df -- the naive check)
+  # sig_t = whether p_pool < 0.05   (t(nu_BR) -- the correct Rubin-pooled test)
+  # If sig_z != sig_t the Barnard-Rubin correction changes the conclusion.
+  # The predominant case: sig_z=TRUE, sig_t=FALSE -- result looks significant
+  # under z but the finite-df correction reveals it is not (anti-conservative
+  # bias if z were used for inference).
   flipped <- trans %>%
     mutate(
       sig_z = abs(t_pool) > 1.96,
@@ -2375,11 +2209,15 @@ diagnose_barnard_rubin <- function(pooled, label) {
     filter(sig_z != sig_t)
 
   if (nrow(flipped) > 0) {
-    cat(sprintf("\n%d parameter(s) where Barnard-Rubin changes significance at p=0.05:\n",
-                nrow(flipped)))
+    cat(sprintf(
+      "\n%d parameter(s) where Barnard-Rubin t-test changes significance conclusion at p=0.05:\n",
+      nrow(flipped)
+    ))
+    cat("  sig_z=TRUE / sig_t=FALSE: z says significant, t(nu_BR) says NOT -- anti-conservative if ignored.\n")
+    cat("  sig_z=FALSE / sig_t=TRUE: z says non-significant, t(nu_BR) says significant -- unusual.\n")
     print(flipped %>% select(varname, Transition, nu_BR, t_pool, p_pool, sig_z, sig_t))
   } else {
-    cat("  ✓ No significance conclusions changed at p=0.05 by Barnard-Rubin correction.\n")
+    cat("  No significance conclusions changed at p=0.05 by Barnard-Rubin correction.\n")
   }
 }
 
