@@ -448,13 +448,11 @@ DirectEffects_rebased <- rebase_and_refit_lmest(
 ## Model diagnostics
 
 ```{r}
-# get_posterior_V() and diagnose_model() are defined in Sources/Paper1_func.R.
-# See that file for full documentation of model$PI vs smoothed posteriors V,
-# the forward-backward call sequence, and the LMest source reference:
-#   https://github.com/cran/LMest/blob/master/R/lmestDecoding.R
+# compute_app() is defined in Sources/Paper1_func.R.
+# Returns a tibble (Model, State, APP, Flag) and prints a kable table.
 
-diag_TE <- diagnose_model(TotalEffects_rebased, "TE")
-diag_DE <- diagnose_model(DirectEffects_rebased, "DE")
+app_TE <- compute_app(TotalEffects_rebased, "TE")
+app_DE <- compute_app(DirectEffects_rebased, "DE")
 ```
 
 ## Results extraction
@@ -551,15 +549,19 @@ model_configs_noEXP <- list(
            latentFormula = fmLatent_TE_noExpBlock_trans$latentFormula
        )
      )
+```
 
-# 3 # LTA TE NO-EXP INIT parallel run
+
+
 ```{r eval=FALSE}
+# 3 # LTA TE NO-EXP INIT parallel run
 TE_init_noEXP_results_parallel_output <- run_lmest_parallel_seeds(
   config  = model_configs_noEXP[[1]],
   data    = LTAdata_long,
   n_reps  = 20,
   ntry    = 5,
-  n_cores = 10
+  n_cores = 20,
+  k = 4
 )
 
 TE_init_noEXP_results_parallel_output$plot
@@ -569,16 +571,14 @@ timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
 saveRDS(TotalEffects_init_noEXP, paste0(paper1_MODELS_rds_path, "TotalEffects_init_noEXP_", timestamp_suffix, ".rds"))
 saveRDS(TotalEffects_init_noEXP, paste0(paper1_MODELS_rds_path, "TotalEffects_init_noEXP.rds"))
 saveRDS(TE_init_noEXP_results_parallel_output, paste0(paper1_MODELS_rds_path, "TE_init_noEXP_results_parallel_output.rds"))
-```
 
 # 4 # LTA TE NO-EXP TRANS parallel run
-```{r eval=FALSE}
 TE_trans_noEXP_results_parallel_output <- run_lmest_parallel_seeds(
   config  = model_configs_noEXP[[2]],
   data    = LTAdata_long,
   n_reps  = 20,
   ntry    = 5,
-  n_cores = 10
+  n_cores = 20
 )
 
 TE_trans_noEXP_results_parallel_output$plot
