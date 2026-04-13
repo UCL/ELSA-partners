@@ -1,9 +1,10 @@
 ---
 title: "Measurement invariance 2PL model of pain impact in ELSA"
-output: 
+output:
   github_document:
     toc: True
 date: "`r format(Sys.time(), '%d %B, %Y')`"
+bibliography: references.bib
 ---
 
 ```{r warning= FALSE, message=FALSE}
@@ -60,19 +61,19 @@ if(interactive()) mirtCluster()
 
 # Introduction
 
-<!-- TODO: rephrase for submission -->In longitudinal investigations, the question of measurement invariance within IRT is: Does the form of the item response function vary across measurement occasions, or is it invariant over occasions? If the item response function varies across time, the probabilities of various item responses for a given latent variable score have changed over time. Measurement invariance is then violated, and observed changes in item scores over time are ambiguous and difficult to interpret. Change could stem from either real change among the individuals involved or the changing item parameters. However, if the item response function is invariant over time, then the observed changes in item scores cannot result from changes in item parameters and must have other explanations (such as real growth). Some violations of invariance may be trivial from a practical standpoint. Also, violations at the item level may not have substantial scale-level impact if items are combined. ([Millsap 2010](https://srcd.onlinelibrary.wiley.com/doi/10.1111/j.1750-8606.2009.00109.x)).
+<!-- TODO: rephrase for submission -->In longitudinal investigations, the question of measurement invariance within IRT is: Does the form of the item response function vary across measurement occasions, or is it invariant over occasions? If the item response function varies across time, the probabilities of various item responses for a given latent variable score have changed over time. Measurement invariance is then violated, and observed changes in item scores over time are ambiguous and difficult to interpret. Change could stem from either real change among the individuals involved or the changing item parameters. However, if the item response function is invariant over time, then the observed changes in item scores cannot result from changes in item parameters and must have other explanations (such as real growth). Some violations of invariance may be trivial from a practical standpoint. Also, violations at the item level may not have substantial scale-level impact if items are combined. [@millsap2010testing].
 
 
-<!-- TODO: rephrase for submission -->The idea that item response theory (IRT) models yield invariant parameter estimates is widely accepted among scholars interested in achieving truly scientific measurements in social and behavioral sciences [Asún et al. 2017](#references)
+<!-- TODO: rephrase for submission -->The idea that item response theory (IRT) models yield invariant parameter estimates is widely accepted among scholars interested in achieving truly scientific measurements in social and behavioral sciences [@asun2017sirens]
 
 
-<!-- TODO: rephrase for submission -->In IRT models, measurement invariance occurs when items exhibit the same item characteristic curves (ICC) across groups of participants or, equivalently, items exhibit the same parameter estimates across groups[Embretson & Reise 2000](#references). 
+<!-- TODO: rephrase for submission -->In IRT models, measurement invariance occurs when items exhibit the same item characteristic curves (ICC) across groups of participants or, equivalently, items exhibit the same parameter estimates across groups [@embretson2013item]. 
 
 internal invariance
 
-    IRT models are internally invariant because they will yield the same parameter estimates within the single population of items and participants (and samples drawn from that population) for which evidence of fit exists. [Asún et al. 2017](#references)
-    
-     IRT models themselves cannot support the assumption of external invariance of the results (i.e., the invariance between populations and samples). [Asún et al. 2017](#references)
+    IRT models are internally invariant because they will yield the same parameter estimates within the single population of items and participants (and samples drawn from that population) for which evidence of fit exists. [@asun2017sirens]
+
+     IRT models themselves cannot support the assumption of external invariance of the results (i.e., the invariance between populations and samples). [@asun2017sirens]
     
 IRT is only internally invariant, i.e., inferences regarding the invariance of results are restricted to the populations of items and participants that are accurately represented in the sample of participants and items used in the calibration of the test, provided that the model fits the data. Thus, the properties observed in a given sample are not generalizable to other populations or samples without further evidence.
 
@@ -81,9 +82,9 @@ IRT is only internally invariant, i.e., inferences regarding the invariance of r
 Investigate whether the items are invariant in their measurement structure across time? 
 
 # Method
-How should you investigate whether the items are invariant in their measurement structure across time? First, find whether a chosen IRT model fits adequately across occasions, apart from invariance constraints on model parameters (configural invariance). If a single IRT model fits all occasions, we then check whether the item response functions vary across occasions. Under measurement invariance, the item parameters have the same values across all occasions. To investigate invariance, fit a model that constrains the item parameters to invariance simultaneously across all occasions.  A likelihood ratio test compares the fit of the unconstrained and that of the constrained models. ([Millsap 2010](https://srcd.onlinelibrary.wiley.com/doi/10.1111/j.1750-8606.2009.00109.x))
+How should you investigate whether the items are invariant in their measurement structure across time? First, find whether a chosen IRT model fits adequately across occasions, apart from invariance constraints on model parameters (configural invariance). If a single IRT model fits all occasions, we then check whether the item response functions vary across occasions. Under measurement invariance, the item parameters have the same values across all occasions. To investigate invariance, fit a model that constrains the item parameters to invariance simultaneously across all occasions.  A likelihood ratio test compares the fit of the unconstrained and that of the constrained models. [@millsap2010testing]
 
-If full invariance is rejected, we investigate which items are changing over time in their item parameters. Here, we fit models that invoke partial invariance constraints, relaxing constraints on some items to find a model that fits well and permits a minimum number of item response functions to vary over time. Given such a model, we next consider whether the changes in the item response functions are important. Judgments of importance are subjective, but effect size measures for differences in item response functions are available. ([Millsap 2010](https://srcd.onlinelibrary.wiley.com/doi/10.1111/j.1750-8606.2009.00109.x))
+If full invariance is rejected, we investigate which items are changing over time in their item parameters. Here, we fit models that invoke partial invariance constraints, relaxing constraints on some items to find a model that fits well and permits a minimum number of item response functions to vary over time. Given such a model, we next consider whether the changes in the item response functions are important. Judgments of importance are subjective, but effect size measures for differences in item response functions are available. [@millsap2010testing]
 
 ## SAMPLE
 
@@ -490,7 +491,7 @@ mfit_df
 
 ## Metric invariance
 
-This model tests if different groups respond to the items in the same way, that is, if the strengths of the relations between specific scale items and their respective underlying construct are the same across groups. If metric invariance is satisfied, obtained ratings can be compared across groups and observed item differences will indicate group differences in the underlying latent construct. Research has suggested that at least partial metric invariance must be established before continuing in the sequence of tests (Vandenberg & Lance, 2000). This model is tested by constraining all factor loadings to be the same across groups. [Coulacoglou & Saklofske 2017](https://www.sciencedirect.com/science/article/abs/pii/B9780128022191000018)
+This model tests if different groups respond to the items in the same way, that is, if the strengths of the relations between specific scale items and their respective underlying construct are the same across groups. If metric invariance is satisfied, obtained ratings can be compared across groups and observed item differences will indicate group differences in the underlying latent construct. Research has suggested that at least partial metric invariance must be established before continuing in the sequence of tests (Vandenberg & Lance, 2000). This model is tested by constraining all factor loadings to be the same across groups. [@coulacoglou2017recent]
 
 
 ```{r}
@@ -757,10 +758,10 @@ ggplot(param_wide, aes(x = a_Partial , y = a_Unconstrained)) +
 
 ## Scalar invariance
 
-Scalar, or intercept, invariance is required to compare (latent) means. Establishing scalar invariance indicates that observed scores are related to the latent scores, that is, individuals who have the same score on the latent construct would obtain the same score on the observed variable regardless of their group membership. This model is tested by constraining the intercepts of items to be the same across groups. This is the last model necessary to compared scores across groups. All additional tests are optional and may be theoretically meaningful in specific contexts. [Coulacoglou & Saklofske 2017](https://www.sciencedirect.com/science/article/abs/pii/B9780128022191000018)
+Scalar, or intercept, invariance is required to compare (latent) means. Establishing scalar invariance indicates that observed scores are related to the latent scores, that is, individuals who have the same score on the latent construct would obtain the same score on the observed variable regardless of their group membership. This model is tested by constraining the intercepts of items to be the same across groups. This is the last model necessary to compared scores across groups. All additional tests are optional and may be theoretically meaningful in specific contexts. [@coulacoglou2017recent]
 
 
-Scalar invariance is tested by constraining the item intercepts to be equivalentbetween groups. The constraints applied in the metric invariance model are retained. Any items that had unequal loadings in the metric invariance model (and were allowed to vary) should be allowed to vary in the scalar invariance model because it is meaningless to test for equal item intercepts if the metric of the items differs across groups. The model with constrained item intercepts (Fig. 1E) is then compared to the metric invariance model (Fig. 1C) to determine fit.([Putnik and Bornstein 2016](https://www.sciencedirect.com/science/article/pii/S0273229716300351?via%3Dihub#f0010])).
+Scalar invariance is tested by constraining the item intercepts to be equivalentbetween groups. The constraints applied in the metric invariance model are retained. Any items that had unequal loadings in the metric invariance model (and were allowed to vary) should be allowed to vary in the scalar invariance model because it is meaningless to test for equal item intercepts if the metric of the items differs across groups. The model with constrained item intercepts (Fig. 1E) is then compared to the metric invariance model (Fig. 1C) to determine fit. [@putnick2016measurement].
 
 Finding scalar noninvariance leaves three options: (1) investigate the source of noninvariance by sequentially releasing (in a backward approach) or adding (in a forward approach) item intercept constraints and retesting the model until a partially invariant model is achieved, (2) omit items with noninvariant intercepts and retest the configural, metric, and scalar invariance models, or (3) assume that the construct is noninvariant and discontinue invariance and group difference testing.
 
