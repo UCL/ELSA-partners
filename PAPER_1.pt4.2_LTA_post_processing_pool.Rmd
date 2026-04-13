@@ -33,7 +33,7 @@ n_imputations <- 22
 
 ---
 
-# 1. Overview
+# Overview
 
 This document covers the final stage of the LTA pipeline: transforming
 the 22 × 2 (TE and DE) raw model fits from
@@ -41,35 +41,29 @@ the 22 × 2 (TE and DE) raw model fits from
 
 The pipeline proceeds in three phases:
 
-**Phase A — Per-imputation extraction (Sections 3–6).** For each
-completed dataset, the raw `lmest` solution is (i) mapped onto a
-common severity ordering of the four latent states, (ii) refitted at
-that ordering to obtain numerical Hessian standard errors, and (iii)
-summarised into clean coefficient tibbles. Results are saved as
-`summaries_{TE|DE}_imp{i}.rds`.
+**Phase A — Per-imputation extraction (Sections 3–6).** For each completed dataset, the raw `lmest` solution is:
+1. mapped onto a common severity ordering of the four latent states, 
+2. refitted at that ordering to obtain numerical Hessian standard errors, and 
+2. summarised into clean coefficient tibbles. Results are saved as `summaries_{TE|DE}_imp{i}.rds`.
 
-**Phase B — Quality checks (Sections 4b–7).** Two cross-imputation
-checks must pass before pooling: (a) a log-likelihood consistency
-check confirms no imputation converged to a local maximum; (b) a state
-ordering consistency check confirms the severity-based reordering
-produced the same state-to-content mapping across all 22 imputations.
+**Phase B — Quality checks (Sections 4b–7).** Two cross-imputation checks must pass before pooling: 
+
+* (a) a log-likelihood consistency check confirms no imputation converged to a local maximum; 
+* (b) a state ordering consistency check confirms the severity-based reordering produced the same state-to-content mapping across all 22 imputations.
+
 If either check fails, pooling is aborted.
 
-**Phase C — Multiple-imputation pooling (Section 8).** Rubin's rules
-are applied via `mice::pool.scalar()`, yielding pooled coefficients,
-standard errors, Barnard-Rubin degrees of freedom, p-values, and
-imputation diagnostics (fmi, r, lambda) for every regression
+**Phase C — Multiple-imputation pooling (Section 8).** Rubin's rules are applied via `mice::pool.scalar()`, yielding pooled coefficients, 
+standard errors, Barnard-Rubin degrees of freedom, p-values, and imputation diagnostics (fmi, r, lambda) for every regression
 coefficient in both models.
 
 ---
 
-# 2. Formula reconstruction
+# Formula reconstruction
 
-The formulas passed to `lmest()` must be identical here and in
-`pt4.1`. They are rebuilt from scratch from one completed dataset so
-that `lmestFormula()` encodes the same factor contrasts that were used
-during model fitting. Any drift between the two files would cause
-`rebase_and_refit_lmest()` to fail or silently misalign parameters.
+The formulas passed to `lmest()` must be identical here and in `pt4.1`. They are rebuilt from s
+cratch from one completed dataset so that `lmestFormula()` encodes the same factor contrasts that were used
+during model fitting. Any drift between the two files would cause `rebase_and_refit_lmest()` to fail or silently misalign parameters.
 
 ```{r formulas, eval=TRUE}
 updated_mids <- readRDS(paste0(rds_path, "mice_updatedMIDS_VH.rds"))
@@ -123,20 +117,16 @@ The composite severity score used to order states is:
 
 $$\text{severity}_k = 0.6 \times E[\texttt{lvimp}|k] + 0.4 \times E[\texttt{painchr}|k]$$
 
-The two indicators have different ranges (`lvimp_shifted_cat3`: 0–2,
-`painchr_ext`: 0–1). Equal weights would let the wider-range indicator
-dominate. The 0.6/0.4 split gives functional impact slightly more pull
-than the chronic/acute binary, consistent with its clinical
-interpretation as the more severe dimension. Weights need only be
-consistent across imputations — a state swap can only occur if two
-states have nearly identical composite scores, and this is caught by
-`check_state_ordering()` (Section 7).
+The two indicators have different ranges (`lvimp_shifted_cat3`: 0–2, `painchr_ext`: 0–1). Equal weights would let the wider-range indicator
+dominate. The 0.6/0.4 split gives functional impact slightly more pull than the chronic/acute binary. This is consistent with the clinical 
+interpretation that impact rather than pain intensity drives more heavily the "severity" dimension. Weights need only be consistent across 
+imputations — a state swap can only occur if two states have nearly identical composite scores, and this is caught by `check_state_ordering()`. 
 
 ---
 
 # 3. Per-imputation extraction: `extract_one()`
 
-`extract_one()` is the core unit of Phase A. It performs five steps for
+`extract_one()` is the core unit of Phase A (per-imputation extraction). This function performs five steps for
 a single imputation:
 
 1.  **Load** `raw_results_{label}_imp{i}.rds` — the best `lmest`
@@ -150,14 +140,11 @@ a single imputation:
     numerically fragile.
 3.  **Rebase and refit**: `rebase_and_refit_lmest()` permutes the
     parameter matrices (Piv, Pi, Ga, Be) to match the severity order,
-    then refits with `out_SE=TRUE` to compute numerical Hessian
-    standard errors at the rebased solution. SEs are computed on the
-    final, rebased parameter vector — computing them before rebasing
-    and transforming algebraically would be incorrect because the
-    transformation is non-linear for the Ga component.
+    then refits with `out_SE=TRUE` to allow lmest to compute the appropriate 
+    standard errors at the rebased solution. 
 4.  **Extract summaries**: `regression_summaries()` returns clean
     tibbles of transition and initial-state multinomial logit
-    coefficients with per-coefficient N and EPV.
+    coefficients with per-coefficient N of observation and Event Per Variable (EPV)*.
 5.  **Save** `summaries_{label}_imp{i}.rds` and return a 4-row log
     tibble recording which original lmest state label was mapped to
     each new severity slot.
@@ -229,11 +216,11 @@ independently completed dataset drawn from the same MICE posterior, so
 all 22 should produce similar best log-likelihoods (same n, same model
 structure, similar data).
 
-A large negative outlier — defined as a best LL more than 2 SDs below
-the median — indicates that the optimiser settled in a local maximum
-for that imputation. Its parameters describe a qualitatively different
-solution and should not be pooled with the other 21. If flagged,
-options are (a) refit that imputation with more random starts, or (b)
+A large negative outlier — defined as a best LL more than *2 SDs* below
+the median. For example, one such negative outlier would indicate that the 
+optimiser settled in a local maximum for that imputation. Its parameters describe 
+a qualitatively different solution and should not be pooled with the other 21. 
+If flagged, options are (a) refit that imputation with more random starts, or (b)
 exclude from pooling and document the decision.
 
 `check_ll_consistency()` is defined in `Sources/Paper1_func.R` and
@@ -248,11 +235,10 @@ lls_DE <- check_ll_consistency("DE", n_imputations, models_path)
 
 # 5. Extraction loop — Total Effects (TE)
 
-The TE model includes the baseline covariates and the partnership /
-spousal support exposure (`ssupport6_cat`) in both the initial-state
-and transition equations. Depression (`cesd_lat_shifted`) and
-loneliness (`loneliness_group`) are **not** included — they are
-potential mediators on the pathway from partnership to pain, so
+The TE model includes the baseline covariates and the partnership/spousal support 
+exposure (`ssupport6_cat`) in both the initial-state and transition equations. 
+Depression (`cesd_lat_shifted`) and loneliness (`loneliness_group`) are **not** 
+included — they are potential mediators on the pathway from partnership to pain, so
 conditioning on them in the TE model would partially block the path of
 interest.
 
@@ -275,11 +261,10 @@ cat("\nTE post-processing complete.\n")
 
 # 6. Extraction loop — Direct Effects (DE)
 
-The DE model adds depression and loneliness as covariates, estimating
-the association between partnership / spousal support and pain
-transitions *net* of these potential mediators. Comparing TE and DE
-coefficients for `ssupport6_cat` provides an informal indication of how
-much of the partnership effect (if any) is mediated through depression
+The DE model adds depression and loneliness as covariates, estimating the association 
+between partnership / spousal support and pain transitions *net* of these potential 
+mediators. Comparing TE and DE coefficients for `ssupport6_cat` provides an informal 
+indication of how much of the partnership effect (if any) is mediated through depression
 or loneliness.
 
 ```{r loop-DE, eval=FALSE}
@@ -298,33 +283,30 @@ cat("\nDE post-processing complete.\n")
 
 # 7. State ordering consistency check
 
-Before pooling, we verify that the severity-based reordering assigned
-the same latent content to the same slot across all 22 imputations.
-This is a prerequisite for Rubin's rules: pooling averages parameters
-labelled "State 2 transition coefficient" across imputations, which is
-only valid if "State 2" refers to the same clinical content in every
-imputation.
+Before pooling, we verify that the severity-based reordering assigned the same latent 
+content to the same slot across all 22 imputations. This is a prerequisite for 
+Rubin's rules: pooling averages parameters labelled "State 2 transition 
+coefficient" across imputations, which is only valid if "State 2" refers to 
+the same clinical content in every imputation.
 
 `check_state_ordering()` (defined in `Sources/Paper1_func.R`) assesses
-this via a **score range overlap test**. For each severity slot
-(new_state 1–4), it records the minimum and maximum composite score
-that landed in that slot across the 22 imputations. If the maximum
-score in slot *k* exceeds the minimum score in slot *k+1*, the
-boundaries between those two states are unstable — some imputations
-assigned higher-severity cases to slot *k* than lower-severity cases
-assigned to slot *k+1* in other imputations.
+this in a deterministic way via a **score range overlap test**. 
+For each severity slot (new_state 1–4), it records the minimum and maximum 
+composite score that landed in that slot across the 22 imputations. If the maximum
+score in slot *k* exceeds the minimum score in slot *k+1*, the boundaries between 
+those two states are unstable — some imputations assigned higher-severity cases 
+to slot *k* than lower-severity cases assigned to slot *k+1* in other imputations.
 
-Note: `n_unique_orig` in the output table counts how many distinct
-original lmest labels (1–4) mapped to each severity slot. Because
-lmest assigns arbitrary integer labels at each fit, all four labels
-will appear in each slot across 22 imputations — `n_unique_orig = 4`
-for all slots is normal and expected. It carries no information about
-ordering stability and is not used for the pass/fail decision.
+Note: `n_unique_orig` in the output table counts how many distinct original lmest 
+labels (1–4) mapped to each severity slot. Because lmest assigns arbitrary integer 
+labels at each fit, we expext that all four labels will appear in each slot across 
+22 imputations — `n_unique_orig = 4`.
 
 If any overlap is detected, `check_state_ordering()` calls `stop()`
 to abort execution before pooling runs.
 
 ```{r ordering-load, eval=TRUE}
+## loading the state_order_data
 state_order_log_TE <- readRDS(paste0(models_path, "state_order_log_TE.rds"))
 state_order_log_DE <- readRDS(paste0(models_path, "state_order_log_DE.rds"))
 ```
@@ -338,13 +320,11 @@ check_state_ordering(state_order_log_DE, "DE", n_imputations)
 
 # 8. Multiple-imputation pooling: Rubin's rules
 
-`pool_summaries()` applies Rubin's rules to pool the 22
-per-imputation coefficient tibbles into a single set of estimates.
-Pooling is performed via `mice::pool.scalar()`, which implements the
-Barnard-Rubin (1999) degrees of freedom correction. The function is
-called separately for each (varname × Transition) or (varname × State)
-cell using `group_modify()`, which avoids a nest/unnest overhead and
-keeps the grouping keys in scope.
+`pool_summaries()` applies Rubin's rules to pool the 22 per-imputation coefficient 
+tibbles into a single set of estimates. Pooling is performed via `mice::pool.scalar()`, 
+which implements the Barnard-Rubin (1999) degrees of freedom correction. The function is
+called separately for each (varname × Transition) or (varname × State) cell using 
+`group_modify()`, which avoids a nest/unnest overhead and keeps the grouping keys in scope.
 
 ## 8.1 Output columns
 
@@ -394,19 +374,16 @@ For each pooled estimate, the key diagnostics to inspect are:
 
 ## 8.3 EPV exclusion
 
-Coefficients with EPV < 10 are flagged in `Sep_Flag` and excluded from
-`Signif` and `Comment`. EPV is the number of observed transitions
-from a given state divided by the number of predictors in the
-transition equation. Sparse transitions (few observed events relative
-to predictors) produce unreliable coefficient estimates and inflated
-SEs regardless of pooling. See Peduzzi et al. (1996) and Vittinghoff &
-McCulloch (2007).
+Coefficients with EPV < 10 are flagged in `Sep_Flag` and excluded from `Signif` and `Comment`. EPV is the number of observed transitions
+from a given state divided by the number of predictors in the transition equation. 
+Sparse transitions (few observed events relative to predictors) produce unreliable 
+coefficient estimates and inflated SEs regardless of pooling. S
+ee Peduzzi et al. (1996) and Vittinghoff & McCulloch (2007).
 
 ## 8.4 Run pooling
 
-These chunks save the pooled results to disk. They are set to
-`eval=FALSE` because they write `.rds` files; results are loaded in
-Section 8.5.
+These chunks save the pooled results to disk. They are set to `eval=FALSE` because 
+they write `.rds` files; results are loaded in Section 8.5.
 
 ```{r pool-run, eval=FALSE}
 pooled_TE <- pool_summaries("TE", n_imputations, models_path)
@@ -427,24 +404,21 @@ pooled_DE <- readRDS(paste0(models_path, "pooled_DE.rds"))
 
 # 9. Barnard-Rubin df diagnostic
 
-This section checks whether the finite-df Barnard-Rubin correction
-materially changes significance conclusions relative to the naive
-z-threshold (|t| > 1.96).
+This section is essentially a sensitivity analysis that checks whether the finite-df 
+Barnard-Rubin correction materially changes significance conclusions relative to 
+the naive z-threshold (|t| > 1.96).
 
-The pooled table already contains `nu_BR`, `p_pool`, `fmi`, `r`, and
-`lambda` per row, but with ~84 transition coefficients per model it is
-impractical to identify borderline cases by eye. `diagnose_barnard_rubin()`
-scans for two actionable issues:
+The pooled table already contains `nu_BR`, `p_pool`, `fmi`, `r`, and `lambda` per row, 
+but with ~84 transition coefficients per model it is impractical to identify 
+borderline cases by eye. `diagnose_barnard_rubin()` scans for two actionable issues:
 
-1. **Low df (nu_BR < 10):** the t-distribution has heavy tails; the
-   critical value at α = 0.05 exceeds 2.23. These estimates have high
+1. **Low df (nu_BR < 10):** the t-distribution has heavy tails; the critical value at α = 0.05 exceeds 2.23. These estimates have high
    between-imputation variance.
-2. **Significance flips:** rows where |t_pool| > 1.96 (z says
-   significant) but p_pool > 0.05 (t(nu_BR) says not significant),
-   or vice versa. The predominant case is the anti-conservative
-   direction: a borderline result that looks significant under z is
-   revealed to be non-significant once the finite-df correction is
-   applied.
+   
+2. **Significance flips:** rows where |t_pool| > 1.96 (z says significant) but p_pool > 0.05 
+   (t(nu_BR) says not significant), or vice versa. 
+   *The predominant case is the anti-conservative direction*: a borderline result that looks significant under z is
+   revealed to be non-significant once the finite-df correction is applied.
 
 ```{r br-diagnostic, eval=TRUE}
 diagnose_barnard_rubin(pooled_TE, "TE")
@@ -455,9 +429,8 @@ diagnose_barnard_rubin(pooled_DE, "DE")
 
 # 10. Key results tables
 
-Filtered to the primary exposure (`ssupport6_cat`) and secondary
-exposures (`cesd_lat_shifted`, `loneliness_group` in DE only), and
-restricted to EPV ≥ 10.
+Filtered to the primary exposure (`ssupport6_cat`) and secondary exposures 
+(`cesd_lat_shifted`, `loneliness_group` in DE only), and restricted to EPV ≥ 10.
 
 ```{r key-tables-def, eval=TRUE}
 print_key_tables <- function(pooled, label, EPV_threshold = 10, round = 3) {
