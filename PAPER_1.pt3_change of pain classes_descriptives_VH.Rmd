@@ -239,8 +239,7 @@ of these imputations referred to incomplete values in one or two
 components and were based on information that the participants provided
 about the upper and lower boundaries within which the actual values of
 those components lay. A detailed description of wealth and its
-components can be found at: <http://bit.ly/1yrRgHd> and
-<http://bit.ly/1awp6iZ>.
+components can be found at: <https://doc.ukdataservice.ac.uk/doc/5050/mrdoc/pdf/5050_user_guide_financial_derived_vars.pdf>.
 
 We add these variables into the harmonised datates as
 
@@ -344,8 +343,7 @@ negative infinity to positive infinity:
 Where p is the probability of the event occurring, and ln is the natural
 logarithm and p/(1-p) is the odds ratio of p.
 
-As for the LMest package paper ([Bartolucci, Pandolfi & Pennoni
-2017](https://www.jstatsoft.org/article/view/v081i04)). The initial
+As for the LMest package paper [@bartolucci2017lmest]. The initial
 probabilities are defined with this equation:
 
 **EQ.2**
@@ -393,8 +391,7 @@ The Transition probabilities are determined as follow:
 $$\log \frac{P(U^{(t)} = u|U^{(t-1)} = \bar{u}, \mathbf{X}^{(t)} = x)}{P(U^{(t)} = \bar{u}|U^{(t-1)} = \bar{u}, \mathbf{X}^{(t)} = x)} = \log \frac{\pi_{u|\bar{u}x}^{(t)}}{\pi_{\bar{u}|\bar{u}x}^{(t)}} = \gamma_{0\bar{u}u} + x^T\gamma_{\bar{u}u}$$
 
 for $t = 2, \ldots , T$ and $\bar{u},u = 1, \ldots, k$, **with**
-$\bar{u}\not=u$. ([Bartolucci, Pandolfi & Pennoni
-2017](https://www.jstatsoft.org/article/view/v081i04),pg.20).
+$\bar{u}\not=u$. [@bartolucci2017lmest, p.20].
 
 Here we notice that:
 
@@ -568,7 +565,7 @@ In general there is a clear wealth gradient in disability among older English ad
 poorest men with disability more likely to live without a partner and have no weekly contact with children, 
 family or friends compared to the wealthiest. Among women with disability, the poorest are 
 more likely to report loneliness and have no partner while the wealthiest and the intermediate 
-groups were more likely to be living with a partner. https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0166825
+groups were more likely to be living with a partner [@torres2016wealth].
 
 It is plausible that individuals living with a partner in the same household combine financial 
 and other resources, resulting in greater overall household wealth compared to those 
@@ -975,7 +972,7 @@ participation in sports or activities that were vigorous, moderately
 energetic and mildly energetic (more than once a week, once a week, one
 to three times a month, hardly ever or never). Physical activity was
 then categorised into four groups in accordance with previous literature
-[@dhalwani2016long,malkowski2023socioeconomic]: (1) inactive (no
+[@dhalwani2016long; @malkowski2023socioeconomic]: (1) inactive (no
 activity on a weekly basis); (2) only mild activity at least once per
 week; (3) at least moderate but no vigorous activity at least once per
 week; and (4) vigorous activity at least once per week.
@@ -1038,7 +1035,7 @@ Depression is strongly linked with chronic pain [@mills2019chronic]
 The CES-D-8 is a valid and reliable measure of depressive symptoms in
 community-dwelling older people, [@briggs2018validation] and a score of
 \>=3 is generally accepted as threshold for
-caseness[@turvey1999revised,white2016duration].
+caseness [@turvey1999revised; @white2016duration].
 
 Counting restless sleep in a cumulative sum score approach may thus
 inflate total scores. [@schlechter2023eight]. This is particularly
