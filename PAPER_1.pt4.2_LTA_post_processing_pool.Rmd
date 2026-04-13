@@ -596,38 +596,3 @@ p_trans <- trans_combined %>%
 print(p_trans)
 ```
 
-## Figure 3: Exposure summary — partnership and spousal support
-
-```{r fig3-exposure, eval=TRUE, fig.width=10, fig.height=8}
-exposure_vars <- c("Less than supportive partner \n vs no partner",
-                   "Supportive partner \n vs no partner")
-
-init_exp <- init_combined %>%
-  filter(varname %in% exposure_vars) %>%
-  mutate(Panel = "Initial state", Label = State)
-
-trans_exp <- trans_combined %>%
-  filter(varname %in% exposure_vars,
-         Direction %in% c("Toward HICP", "Recovery from HICP")) %>%
-  mutate(Panel = Direction, Label = Transition)
-
-exp_combined <- bind_rows(init_exp, trans_exp) %>%
-  mutate(Panel = factor(Panel,
-                        levels = c("Initial state",
-                                   "Toward HICP",
-                                   "Recovery from HICP")))
-
-p_exposure <- ggplot(exp_combined,
-                     aes(x = Q_bar, y = Label, colour = Model,
-                         xmin = CI_lo, xmax = CI_hi,
-                         shape = varname)) +
-  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
-  geom_pointrange(position = position_dodge(width = 0.6), size = 0.5) +
-  facet_wrap(~ Panel, ncol = 1, scales = "free_y") +
-  labs(title   = "Partnership & spousal support — pooled log-ORs (TE vs DE)",
-       x       = "Log-OR (95% CI)", y = NULL, caption = state_caption,
-       colour  = "Model", shape = "Category") +
-  plot_theme
-
-print(p_exposure)
-```
