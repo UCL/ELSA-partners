@@ -495,7 +495,7 @@ combining initial states and key transitions in a single panel layout
 for the main results interpretation.
 
 ```{r plot-config, eval=TRUE}
-EPV_PLOT_THRESHOLD <- 10
+EPV_PLOT_THRESHOLD <- 20
 
 hicp_transitions     <- c("1 -> 2", "1 -> 3", "1 -> 4", "2 -> 4", "3 -> 4")
 recovery_transitions <- c("4 -> 1", "4 -> 2", "4 -> 3")
