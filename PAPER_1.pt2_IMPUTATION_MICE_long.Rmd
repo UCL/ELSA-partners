@@ -52,10 +52,6 @@ This pipeline operates on data in the long data format (one row per participant 
 * Minimal Missingness handling: For variables with very few missing values, simple imputation (median for numeric, mode for categorical) is performed before running MICE. This is efficient and avoids unnecessary complexity for almost-complete variables.
 * Missingness visualisation: The use of naniar::vis_miss to visualize missingness patterns before and after imputation is excellent for transparency and quality control.
 
-https://arxiv.org/pdf/2404.06967
-
-
-
 ## Age and immortal cohort assumption
 
 We assume no further death event than those recorded in ELSA and we take the baseline age as a timeinvariant predictor 
@@ -276,7 +272,6 @@ str(Missingdata_wide)
 For variables with ≤5 missing values (0.06% of total sample N = 8014), impute using median (numeric) or mode (categorical).
 
 While efficient, this approach doesn't propagate imputation uncertainty for these variables and should perhaps be reconsidered (?)
-https://pmc.ncbi.nlm.nih.gov/articles/PMC3074241/
 [@azur2011multiple]
 
 ```{r eval = T}
@@ -448,7 +443,7 @@ Missingdata_long<-Missingdata_long %>%
 
 ## MICE imputation
 
-Linear MixedModel-based FCS on https://arxiv.org/pdf/2404.06967
+Linear Mixed-Model-based FCS [@wijesuriya2025multiple]
 
 The FCS-2L approach imputes missing values using a series of conditional LMMs specified for each incomplete variable, tailored according to the distribution of the variable. 
 
