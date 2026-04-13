@@ -464,7 +464,7 @@ H_elsa_w4_6<-H_elsa_w4_6 %>% mutate(r4painsev = case_when(r4painfr <  0 ~ NA_rea
 
 
 ## PHYSICAL ACTIVITY
-Participants were asked to self-report the frequency of their participation in sports or activities that were vigorous, moderately energetic and mildly energetic (more than once a week, once a week, one to three times a month, hardly ever or never). Physical activity was then categorised into four groups in accordance with previous literature [@dhalwani2016long,malkowski2023socioeconomic]: 
+Participants were asked to self-report the frequency of their participation in sports or activities that were vigorous, moderately energetic and mildly energetic (more than once a week, once a week, one to three times a month, hardly ever or never). Physical activity was then categorised into four groups in accordance with previous literature [@dhalwani2016long; @malkowski2023socioeconomic]:
 (1) inactive (no activity on a weekly basis); 
 (2) only mild activity at least once per week; 
 (3) at least moderate but no vigorous activity at least once per week; and 
@@ -495,7 +495,7 @@ H_elsa_w4_6<-create_PA_categories(H_elsa_w4_6,wave = 6)
 ## Depression 8 item
 Depression is strongly linked with chronic pain [@mills2019chronic]
 
-The CES-D-8 is a valid and reliable measure of depressive symptoms in community-dwelling older people, [@briggs2018validation] and a score of >=3 is generally accepted as threshold for caseness[@turvey1999revised,white2016duration].
+The CES-D-8 is a valid and reliable measure of depressive symptoms in community-dwelling older people, [@briggs2018validation] and a score of >=3 is generally accepted as threshold for caseness [@turvey1999revised; @white2016duration].
 
 ### Depression latent score
 ```{r,echo=TRUE,eval=FALSE, warning=FALSE,message=FALSE,error=FALSE,results='hide'}
