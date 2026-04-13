@@ -501,7 +501,7 @@ We Transform categorical and ordinal variables into binary variables to ease LTA
 * painchr_ext: Recodes pain scale to start from 0 (required for LME/ST modeling)
 
 
-* lnlys3_bin: is not parametrised for its poor sensitivity and specificity when parametrised  using the common threshold [see this ](https://pmc.ncbi.nlm.nih.gov/articles/PMC11578901/)
+* lnlys3_bin: is not parametrised for its poor sensitivity and specificity when parametrised  using the common threshold [@gosling2024measuring]
 
 
 
