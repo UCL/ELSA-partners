@@ -293,7 +293,7 @@ As we include covariates we have both a response formula and a latent formula: o
 
 ## Multi-start methodology
 
-*"A unique aspect of all finite mixture models is that although there is a global, best-fitting solution at the global maximum log likelihood (LL), there are also multiple less well-fitting solutions at different local maxima LL. Part of the exploratory nature of finite mixture models is running each K+1 class model with multiple random starts so that each model run includes multiple model solutions with their LL reported in the output."* (Moore et al., 2025, https://onlinelibrary.wiley.com/doi/full/10.1002/ijop.70021)
+*"A unique aspect of all finite mixture models is that although there is a global, best-fitting solution at the global maximum log likelihood (LL), there are also multiple less well-fitting solutions at different local maxima LL. Part of the exploratory nature of finite mixture models is running each K+1 class model with multiple random starts so that each model run includes multiple model solutions with their LL reported in the output."* [@moore2025introduction]
 
 The estimation procedure works in three steps:
 
