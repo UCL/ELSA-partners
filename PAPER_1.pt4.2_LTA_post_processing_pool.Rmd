@@ -226,7 +226,7 @@ exclude from pooling and document the decision.
 `check_ll_consistency()` is defined in `Sources/Paper1_func.R` and
 reads `best_model$lk` from every `raw_results_{label}_imp{i}.rds`.
 
-```{r ll-check, eval=TRUE}
+```{r ll-check, eval=TRUE, cache=TRUE}
 lls_TE <- check_ll_consistency("TE", n_imputations, models_path)
 lls_DE <- check_ll_consistency("DE", n_imputations, models_path)
 ```
@@ -473,12 +473,141 @@ print_key_tables(pooled_DE, "DE")
 
 ---
 
+# 10.5 Observed transition counts and model-implied probabilities
+
+Descriptive tables pooled across all 22 TE-model imputations. State labels use
+the pre-verified severity ordering from `state_order_log_TE.rds` — 
+Here we do not need re-computation of `Determine_state_ordering()` because we done 
+so in the previous phase.
+
+**Imputation uncertainty** is captured by computing each quantity for every
+imputation and reporting mean ± SD across the 22 values. This reflects
+variability due to the imputation model; within-imputation model estimation
+uncertainty is not separately quantified here (Rubin's rules apply to
+inferential quantities, not descriptive counts or marginal probabilities).
+
+**Note:** Both count and probability tables are based on Viterbi
+(modal/hard-assignment) decoding. Hard assignment underestimates classification
+uncertainty relative to soft posterior probabilities, but is standard for
+descriptive transition matrices.
+
+```{r trans-matrices, eval=TRUE, cache=TRUE}
+# Load pre-verified state ordering
+state_order_log_TE <- readRDS(paste0(models_path, "state_order_log_TE.rds"))
+
+state_labels_sev <- c(
+  "S1: No pain",
+  "S2: Pain, no impairment",
+  "S3: Impairment, no CP",
+  "S4: HICP"
+)
+
+# For imputation i: integer vector s.t. order_i[j] = original LMest label
+# whose severity rank is j (1 = least severe).
+get_order_i <- function(i) {
+  state_order_log_TE %>%
+    filter(.data$imp == i) %>%
+    arrange(new_state) %>%
+    pull(orig_state)
+}
+
+# Accumulate across imputations
+init_counts_list  <- vector("list", n_imputations)
+trans_counts_list <- vector("list", n_imputations)
+trans_probs_list  <- vector("list", n_imputations)
+
+for (i in seq_len(n_imputations)) {
+  raw     <- readRDS(paste0(models_path, "raw_results_TE_imp", i, ".rds"))
+  model   <- raw$best_model
+  order_i <- get_order_i(i)
+
+  # ── Initial state counts ──────────────────────────────────────────────────
+  ic <- get_observed_InitialStates_counts(model)
+  # ic is named "State 1" … "State 4" using LMest original labels; reorder
+  init_counts_list[[i]] <- ic[paste("State", order_i)]
+
+  # ── Transition counts ─────────────────────────────────────────────────────
+  invisible(capture.output(
+    tc <- get_observed_transition_counts(model, option = "global")
+  ))
+  # tc rows/cols named "From/To State {orig_label}"; reorder to severity
+  trans_counts_list[[i]] <-
+    tc[paste0("From State ", order_i), paste0("To State ", order_i)]
+
+  # ── Model-implied transition probabilities ────────────────────────────────
+  tp <- calc_transition_matrix_prob(model)
+  trans_probs_list[[i]] <-
+    tp[paste0("From State ", order_i), paste0("To State ", order_i)]
+}
+
+# ── Pool: mean ± SD ──────────────────────────────────────────────────────────
+
+# Initial state counts
+init_mat   <- do.call(rbind, lapply(init_counts_list, as.numeric))
+init_mean  <- colMeans(init_mat)
+init_sd    <- apply(init_mat, 2, sd)
+
+init_df <- data.frame(
+  State = state_labels_sev,
+  `Mean count (SD)` = sprintf("%.1f (%.1f)", init_mean, init_sd),
+  check.names = FALSE
+)
+
+# Transition counts
+tc_array  <- simplify2array(trans_counts_list)   # 4 × 4 × 22
+tc_mean   <- apply(tc_array, c(1, 2), mean)
+tc_sd     <- apply(tc_array, c(1, 2), sd)
+tc_table  <- matrix(sprintf("%.1f (%.1f)", tc_mean, tc_sd), 4, 4,
+                    dimnames = list(
+                      paste("From", state_labels_sev),
+                      paste("To",   state_labels_sev)
+                    ))
+
+# Transition probabilities
+tp_array  <- simplify2array(trans_probs_list)    # 4 × 4 × 22
+tp_mean   <- apply(tp_array, c(1, 2), mean)
+tp_sd     <- apply(tp_array, c(1, 2), sd)
+tp_table  <- matrix(sprintf("%.3f (%.3f)", tp_mean, tp_sd), 4, 4,
+                    dimnames = list(
+                      paste("From", state_labels_sev),
+                      paste("To",   state_labels_sev)
+                    ))
+```
+
+## Initial state counts
+
+```{r init-counts-table, eval=TRUE}
+kable(init_df,
+      caption = "Initial state membership counts — mean (SD) across 22 imputations")
+```
+
+## Observed transition counts
+
+```{r trans-counts-table, eval=TRUE}
+kable(tc_table,
+      caption = "Observed transition counts (Viterbi) — mean (SD) across 22 imputations")
+```
+
+## Model-implied transition probabilities
+
+```{r trans-probs-table, eval=TRUE, cache=TRUE}
+kable(tp_table,
+      caption = "Model-implied marginal transition probabilities — mean (SD) across 22 imputations. Averaged over subjects and time points 2:TT from model$PI.")
+```
+
+---
+
 # 11. Effect plots
 
 Three figures display the pooled log-odds ratios with 95% confidence
 intervals (computed using the Barnard-Rubin df: `qt(0.975, nu_BR)`).
-Estimates with EPV < 10 are excluded. TE and DE model estimates are
-plotted side by side for direct comparison.
+Estimates with EPV < 10 are excluded. 
+
+```{r}
+EPV_PLOT_THRESHOLD <- 20
+```
+
+TE and DE model estimates are plotted side by side for direct comparison.
 
 **Figure 1** shows initial-state membership log-ORs for all covariates,
 faceted by state (States 2–4 vs State 1 reference). This summarises
@@ -495,7 +624,6 @@ combining initial states and key transitions in a single panel layout
 for the main results interpretation.
 
 ```{r plot-config, eval=TRUE}
-EPV_PLOT_THRESHOLD <- 20
 
 hicp_transitions     <- c("1 -> 2", "1 -> 3", "1 -> 4", "2 -> 4", "3 -> 4")
 recovery_transitions <- c("4 -> 1", "4 -> 2", "4 -> 3")
@@ -556,6 +684,7 @@ trans_combined <- bind_rows(
     Direction = case_when(
       Transition %in% hicp_transitions     ~ "Toward HICP",
       Transition %in% recovery_transitions ~ "Recovery from HICP",
+      Transition == "3 -> 1"               ~ "Improvement",
       TRUE                                  ~ "Maintenance"
     )
   )
