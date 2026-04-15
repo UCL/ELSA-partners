@@ -514,11 +514,39 @@ DirectEffects_rebased <- rebase_and_refit_lmest(
 
 ## Model diagnostics
 
+Model adequacy is assessed using the entropy statistic [@clark2009relating] and the
+four criteria laid out by @nagin2010group: (a) correspondence between estimated group
+membership probabilities and proportions modally assigned to each state; (b) average
+posterior probability (APP) exceeding 0.70 per state; (c) odds of correct classification
+(OCC) exceeding 5 per state; and (d) classification error below 0.30. All metrics are
+computed from full 3-wave smoothed marginal posteriors $P(U_t = k \mid \mathbf{Y}_n)$
+recovered via the forward-backward algorithm (see `compute_diagnostics()` in
+`Sources/Paper1_func.R`).
+
+**Entropy** [@clark2009relating]:
+
+$$E = 1 - \frac{\sum_i \sum_k -\hat{p}_{ik} \ln \hat{p}_{ik}}{n \ln K}$$
+
+Values close to 1 indicate sharp, well-separated class assignment. Threshold: $E > 0.80$.
+
+**APP** [@nagin2010group, criterion b]: $\text{APP}_k = \text{mean}(\hat{p}_{ik})$ for
+observations modally assigned to state $k$. Values well above the chance level of
+$1/K = 0.25$ confirm that the model assigns observations to states with confidence.
+Threshold: $\text{APP}_k > 0.70$.
+
+**OCC** [@nagin2010group, criterion c]:
+$\text{OCC}_k = (\text{APP}_k / (1-\text{APP}_k)) \;/\; (\pi_k / (1-\pi_k))$,
+where $\pi_k$ is the estimated group proportion. Values above 5 indicate that
+posterior-based assignment substantially outperforms random allocation.
+Threshold: $\text{OCC}_k > 5$.
+
+**Classification error** [@nagin2010group]: $1 - \text{mean}_i(\max_k \hat{p}_{ik})$.
+Threshold: $< 0.30$.
+
 ```{r model-diagnostics}
-# compute_diagnostics() is defined in Sources/Paper1_func.R.
-# Implements all four Nagin (2010) criteria plus entropy (Clark & Muthén 2009).
+# compute_diagnostics() in Sources/Paper1_func.R.
 # Returns a named list: $entropy, $app, $class_err, $occ — one tibble each.
-# Pass metrics = c("entropy","app") etc. to print a subset only.
+# Pass metrics = c("entropy","app") etc. to request a subset.
 
 diag_TE <- compute_diagnostics(TotalEffects_rebased, "TE")
 diag_DE <- compute_diagnostics(DirectEffects_rebased, "DE")
