@@ -1063,7 +1063,7 @@ calc_transition_matrix_prob <- function(model) {
 #
 # Returns (invisibly): named list with one tibble per requested metric.
 #
-# Called from: PAPER_1.pt4_LTA_models.Rmd § "Model diagnostics"
+# Called from: suppl_pt4_LTA_models.Rmd § "Model diagnostics"
 #
 compute_diagnostics <- function(model, label,
                                 metrics   = c("entropy", "app", "class_err", "occ"),
