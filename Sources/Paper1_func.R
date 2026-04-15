@@ -971,59 +971,41 @@ calc_transition_matrix_prob <- function(model) {
 ##                                X_n only, not on the subject's observed responses Y_n.
 ##                                Time t=1 is a placeholder (all zeros).
 ##
-## The true smoothed marginal posterior P(U_t = j | Y_n) can be found in the internal 
-## array V computed by prob_post_cov() inside the forward-backward algorithm. 
-## lmestDecoding() computes V to build Ul (decoded states) but discards V before 
+## The true smoothed marginal posterior P(U_t = j | Y_n) can be found in the internal
+## array V computed by prob_post_cov() inside the forward-backward algorithm.
+## lmestDecoding() computes V to build Ul (decoded states) but discards V before
 ## returning.
 ## See: https://github.com/cran/LMest/blob/master/R/lmestDecoding.R
 ##
+## FRAGILITY NOTE: all functions below depend on unexported LMest internals (:::).
+## Tested on LMest 2.1.x. Verify after any LMest package update.
+##
 ################################################################################
 
-# compute_app(model, label)
+# .get_smoothed_posteriors(model)
 #
-# Returns a tibble of Average Posterior Probabilities (APP) per state,
-# computed from the smoothed marginal posteriors across all 3 waves.
+# Internal helper. Recovers smoothed marginal posteriors P(U_t = j | Y_n) for
+# all subjects and waves via the forward-backward algorithm (lk_comp_latent +
+# prob_post_cov), stacks waves into a single [n*TT × k] matrix, and returns
+# modal class assignments.
 #
-# APP_s = mean P(U_t = s | data) for all (subject × wave) observations
-# whose modal assignment is state s. Values well above 1/k = 0.25 indicate
-# that the model assigns observations to states with confidence. The
-# conventional threshold is APP > 0.70 per state.
+# Returns: list(all_posts [n*TT × k], all_decoded [n*TT], n, k)
 #
-# All 3 waves are stacked rather than using wave 1 only: wave-1 posteriors
-# are sharpest (initialisation advantage); waves 2-3 are more diffuse as
-# uncertainty accumulates. Using all waves gives a fair average.
-#
-# The forward-backward pass (lk_comp_latent + prob_post_cov) is the same
-# computation that lmestDecoding performs internally but discards — there
-# is no public LMest API to retrieve the posteriors V directly.
-#
-# FRAGILITY NOTE: depends on unexported LMest internals (:::).
-# Tested on LMest 2.1.x. Verify after any LMest package update.
-#
-# Args:
-#   model  — fitted LMlatent object
-#   label  — character string for printed header
-#
-# Returns (invisibly): tibble with columns Model, State, APP, Flag
-#
-compute_app <- function(model, label) {
+.get_smoothed_posteriors <- function(model) {
 
   stopifnot(inherits(model, "LMlatent"))
 
-  # ── recover smoothed posteriors V [n × k × TT] ──────────────────────────────
   newdata  <- model$data
   id       <- attributes(model)$id
   tv       <- attributes(model)$time
   data.new <- newdata[, -c(attributes(model)$whichtv,
                             attributes(model)$whichid), drop = FALSE]
 
-  Y <- LMest:::getResponses(data.new, attributes(model)$responsesFormula)$Y
-
+  Y    <- LMest:::getResponses(data.new, attributes(model)$responsesFormula)$Y
   tmp2 <- LMest:::getLatent(data.new,
                              attributes(model)$responsesFormula,
                              attributes(model)$latentFormula)
-
-  tmp <- LMest:::long2matrices.internal(
+  tmp  <- LMest:::long2matrices.internal(
     Y = Y, id = id, time = tv, yv = rep(1, max(id)),
     Xinitial = tmp2$Xinitial, Xmanifest = NULL, Xtrans = tmp2$Xtrans
   )
@@ -1034,29 +1016,163 @@ compute_app <- function(model, label) {
 
   n      <- dim(Y)[1]
   k      <- model$k
-  out_lk <- LMest:::lk_comp_latent(Y, R, rep(1, n), model$Piv, model$PI, model$Psi, k, fort = TRUE)
+  out_lk <- LMest:::lk_comp_latent(Y, R, rep(1, n), model$Piv, model$PI,
+                                    model$Psi, k, fort = TRUE)
   V      <- LMest:::prob_post_cov(Y, rep(1, n), model$Psi, model$Piv, model$PI,
                                    out_lk$Phi, out_lk$L, out_lk$pv, fort = TRUE)$V
 
-  # ── stack waves, compute modal assignment, compute APP ───────────────────────
+  # Stack all TT waves → [n*TT × k]
   all_posts   <- do.call(rbind, lapply(seq_len(dim(V)[3]), function(t) V[, , t]))
   all_decoded <- apply(all_posts, 1, which.max)
 
+  list(all_posts = all_posts, all_decoded = all_decoded, n = n, k = k)
+}
+
+
+# compute_diagnostics(model, label, metrics, print_refs)
+#
+# Primary interface for LTA model quality assessment. Implements all four
+# criteria from Nagin (2010) plus entropy (Clark & Muthén 2009):
+#
+#   "entropy"   — E = 1 - sum_i sum_k(-p_ik * ln(p_ik)) / (n * ln(K))
+#                 Measures sharpness of posterior assignments. Threshold > 0.80.
+#                 Ref: Clark & Muthén (2009)
+#
+#   "app"       — Average Posterior Probability per state: mean P(U=s | data)
+#                 for observations modally assigned to state s. Threshold > 0.70.
+#                 Nagin (2010) criterion (b).
+#
+#   "class_err" — 1 - mean(max posterior probability per observation).
+#                 Proportion of observations whose most probable state is not
+#                 their modal assignment. Threshold < 0.30.
+#                 Nagin (2010) criterion (b)/(c) corollary.
+#
+#   "occ"       — Odds of Correct Classification per state:
+#                 OCC_s = (APP_s / (1 - APP_s)) / (pi_s / (1 - pi_s))
+#                 where pi_s = estimated group proportion (mean posterior).
+#                 Also checks criterion (a): correspondence between pi_s and
+#                 proportion modally assigned to state s. Threshold OCC > 5.
+#                 Nagin (2010) criterion (a) and (c).
+#
+# Args:
+#   model      — fitted LMlatent object (rebased)
+#   label      — character label for printed headers
+#   metrics    — character vector, any subset of c("entropy","app","class_err","occ").
+#                Default: all four.
+#   print_refs — logical; if TRUE (default) prints reference citations after tables.
+#
+# Returns (invisibly): named list with one tibble per requested metric.
+#
+# Called from: PAPER_1.pt4_LTA_models.Rmd § "Model diagnostics"
+#
+compute_diagnostics <- function(model, label,
+                                metrics   = c("entropy", "app", "class_err", "occ"),
+                                print_refs = TRUE) {
+
+  p   <- .get_smoothed_posteriors(model)
+  all_posts   <- p$all_posts
+  all_decoded <- p$all_decoded
+  n   <- nrow(all_posts)
+  k   <- ncol(all_posts)
+  eps <- 1e-15
+
+  results <- list()
+
+  # ── Entropy (Clark & Muthén 2009) ─────────────────────────────────────────
+  if ("entropy" %in% metrics) {
+    ev <- round(1 + sum(all_posts * log(all_posts + eps)) / (n * log(k)), 3)
+    results$entropy <- tibble(
+      Model     = label,
+      Metric    = "Entropy",
+      Value     = ev,
+      Threshold = "> 0.80",
+      Flag      = ifelse(ev >= 0.80, "OK", "< 0.80 — borderline")
+    )
+    print(knitr::kable(results$entropy,
+          caption = sprintf("Entropy — %s  [Clark & Muthén 2009]", label)))
+  }
+
+  # ── APP per state (Nagin 2010, criterion b) ────────────────────────────────
   app <- sapply(seq_len(k), function(s) {
     in_s <- which(all_decoded == s)
     if (length(in_s) == 0) return(NA_real_)
     mean(all_posts[in_s, s])
   })
 
-  result <- tibble(
-    Model = label,
-    State = paste("State", seq_len(k)),
-    APP   = round(app, 3),
-    Flag  = ifelse(app < 0.70, "< 0.70 — borderline", "OK")
-  )
+  if ("app" %in% metrics) {
+    results$app <- tibble(
+      Model     = label,
+      State     = paste("State", seq_len(k)),
+      APP       = round(app, 3),
+      Threshold = "> 0.70",
+      Flag      = ifelse(app < 0.70, "< 0.70 — borderline", "OK")
+    )
+    print(knitr::kable(results$app,
+          caption = sprintf("Average Posterior Probability — %s  [Nagin 2010, criterion b]",
+                            label)))
+  }
 
-  print(knitr::kable(result, caption = sprintf("APP — %s (all 3 waves)", label)))
-  invisible(result)
+  # ── Classification error (Nagin 2010, criterion b corollary) ──────────────
+  if ("class_err" %in% metrics) {
+    ce <- round(1 - mean(apply(all_posts, 1, max)), 3)
+    results$class_err <- tibble(
+      Model     = label,
+      Metric    = "Classification error",
+      Value     = ce,
+      Threshold = "< 0.30",
+      Flag      = ifelse(ce < 0.30, "OK", "> 0.30 — poor")
+    )
+    print(knitr::kable(results$class_err,
+          caption = sprintf("Classification error — %s  [Nagin 2010]", label)))
+  }
+
+  # ── OCC per state + group-size correspondence (Nagin 2010, criteria a & c) ─
+  if ("occ" %in% metrics) {
+    pi_j          <- colMeans(all_posts)           # estimated group proportions
+    prop_assigned <- sapply(seq_len(k),
+                            function(s) mean(all_decoded == s))  # modal proportions
+    occ <- (app / (1 - app)) / (pi_j / (1 - pi_j))
+
+    results$occ <- tibble(
+      Model         = label,
+      State         = paste("State", seq_len(k)),
+      pi_j          = round(pi_j, 3),
+      Prop_assigned = round(prop_assigned, 3),
+      APP           = round(app, 3),
+      OCC           = round(occ, 3),
+      Threshold     = "> 5.0",
+      Flag          = ifelse(occ >= 5.0, "OK", "< 5.0 — borderline")
+    )
+    print(knitr::kable(results$occ,
+          caption = sprintf(
+            "OCC & group-size correspondence — %s  [Nagin 2010, criteria a & c]",
+            label)))
+  }
+
+  # ── References ────────────────────────────────────────────────────────────
+  if (print_refs) {
+    cat("\n--- References ---\n")
+    if ("entropy" %in% metrics)
+      cat("Entropy:  Clark SL & Muthen B (2009). Relating latent class analysis results",
+          "to variables not included in the analysis. Unpublished manuscript.\n")
+    if (any(c("app", "class_err", "occ") %in% metrics))
+      cat("APP / Classification error / OCC:  Nagin DS (2010). Group-based trajectory",
+          "modeling: an overview. Current Directions in Psychological Science,",
+          "19(2), 65-68.\n")
+  }
+
+  invisible(results)
+}
+
+
+# compute_app(model, label)
+#
+# Thin wrapper around compute_diagnostics() retained for backward compatibility.
+# Returns the APP tibble only. Prefer compute_diagnostics() for new code.
+#
+compute_app <- function(model, label) {
+  res <- compute_diagnostics(model, label, metrics = "app", print_refs = FALSE)
+  invisible(res$app)
 }
 
 
