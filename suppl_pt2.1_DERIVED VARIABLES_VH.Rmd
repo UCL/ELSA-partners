@@ -56,9 +56,9 @@ The following LTA variables are not derived in this file — they enter via
 
 | Variable | Derived in | Location |
 |---|---|---|
-| `raeduc_e` | `PAPER_1.pt1_Data_prep.Rmd` | line 375: `-15` recoded to `2` ("Other education"); imputed with `2lonly.pmm` in pt2 |
-| `MLTC` | `PAPER_1.pt1_Data_prep.Rmd` | lines 683–702: `create_MLTC_variable()` — Poole 2020 definition + psyche; imputed with `2l.pmm` in pt2 |
-| `cesd_lat_shifted` | `PAPER_1.pt2_IMPUTATION_MICE_long.Rmd` | lines 174–176: `rXcesd_lat - global_min_cesd_lat` (shift before imputation); imputed with `2l.pmm` |
+| `raeduc_e` | `suppl_pt1_Data_prep.Rmd` | line 375: `-15` recoded to `2` ("Other education"); imputed with `2lonly.pmm` in pt2 |
+| `MLTC` | `suppl_pt1_Data_prep.Rmd` | lines 683–702: `create_MLTC_variable()` — Poole 2020 definition + psyche; imputed with `2l.pmm` in pt2 |
+| `cesd_lat_shifted` | `suppl_pt2_IMPUTATION_MICE_long.Rmd` | lines 174–176: `rXcesd_lat - global_min_cesd_lat` (shift before imputation); imputed with `2l.pmm` |
 
 ## Derived variables
 

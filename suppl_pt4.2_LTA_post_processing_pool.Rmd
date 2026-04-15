@@ -37,7 +37,7 @@ n_imputations <- 22
 
 This document covers the final stage of the LTA pipeline: transforming
 the 22 × 2 (TE and DE) raw model fits from
-`PAPER_1.pt4.1_imputation_loop.r` into pooled, reportable results.
+`suppl_pt4.1_imputation_loop.r` into pooled, reportable results.
 
 The pipeline proceeds in three phases:
 

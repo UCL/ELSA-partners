@@ -6,7 +6,7 @@
 #
 # THIS IS NOT the chronic pain classifier used in the main analysis.
 # The analysis classifier is `painchr_ext`, derived in:
-#   PAPER_1.pt1_Data_prep.Rmd (lines ~726–760)
+#   suppl_pt1_Data_prep.Rmd (lines ~726–760)
 # using `create_pain_locations_count()` from Sources/Paper1_func.R.
 # `painchr_ext` is a 4-category extended classifier (No pain / Acute /
 # Chronic / Chronic widespread 3+ locations).

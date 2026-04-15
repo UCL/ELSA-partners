@@ -1444,7 +1444,7 @@ ggplot(H_elsa_w4_6, aes(x = r4painchr_ext,
 library(table1)
 
 # r4lvimp, r4pain_locN_cat, r4painchr_ext: pass-through from H_elsa_w4_6.rds
-# derived in PAPER_1.pt1_Data_prep.Rmd:
+# derived in suppl_pt1_Data_prep.Rmd:
 #   r4lvimp          — IRT pain impact score (pt1 § "IMPORT impact IRT data")
 #   r4lvimp
 H_elsa_w4_6$r4lvimp_shifted<-H_elsa_w4_6$r4lvimp - min(H_elsa_w4_6$r4lvimp)

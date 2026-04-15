@@ -34,7 +34,7 @@ flowchart TD
     subgraph PREP["🛠️ Step 1 — Data Preparation"]
         direction TB
         CESD_MOD[("cesd_lat_metricInv\nfit…rds\n(pre-fitted CFA)")]
-        PT1["PAPER_1.pt1_Data_prep.Rmd\n· variable derivation\n· sample selection w4–6\n· chronic pain classification\n· MLTC · depression · partner"]
+        PT1["suppl_pt1_Data_prep.Rmd\n· variable derivation\n· sample selection w4–6\n· chronic pain classification\n· MLTC · depression · partner"]
         W1[("H_elsa_w1.rds")]
         W46[("H_elsa_w4_6.rds\n✅ Clean w4–6 dataset")]
         CESD_MOD --> PT1
@@ -45,14 +45,14 @@ flowchart TD
     %% ─────────────────────────────────────────────
     %%  STAGE 1.1 — MAR (MISSING)
     %% ─────────────────────────────────────────────
-    MAR["⚠️ Step 1.1 — MAR Exploration\nPAPER_1.pt1.1_MAR_exploration.Rmd\nNOT YET BUILT"]
+    MAR["⚠️ Step 1.1 — MAR Exploration\nsuppl_pt1.1_MAR_exploration.Rmd\nNOT YET BUILT"]
 
     %% ─────────────────────────────────────────────
     %%  STAGE 2 — Multiple imputation
     %% ─────────────────────────────────────────────
     subgraph IMPUTE["🔁 Step 2 — Multiple Imputation (MICE)"]
         direction TB
-        PT2["PAPER_1.pt2_IMPUTATION\n_MICE_long.Rmd\n· wide → long format\n· 2-level FCS imputation\n· conditional imputation\n  (marital strain | partner)"]
+        PT2["suppl_pt2_IMPUTATION\n_MICE_long.Rmd\n· wide → long format\n· 2-level FCS imputation\n· conditional imputation\n  (marital strain | partner)"]
         MICE[("mice_imputationlong\n_rev4.rds\n12 imputed datasets")]
         PT2 --> MICE
     end
@@ -63,7 +63,7 @@ flowchart TD
     subgraph DERIVE["⚙️ Step 2.1 — Derived Variables"]
         direction TB
         STAB[("Impact_clustStability\n_boot2000.rds")]
-        PT21["PAPER_1.pt2.1_DERIVED\nVARIABLES_rev.4.Rmd\n· lvimp_shifted_cat (PAM w4 medoids)\n· wealthQ_bin (quintiles)\n· loneliness_group (median)\n· time · Sex_BIN · raagey_z"]
+        PT21["suppl_pt2.1_DERIVED\nVARIABLES_rev.4.Rmd\n· lvimp_shifted_cat (PAM w4 medoids)\n· wealthQ_bin (quintiles)\n· loneliness_group (median)\n· time · Sex_BIN · raagey_z"]
         MIDS[("mice_updatedMIDS_rev4.rds\n✅ Final analysis dataset")]
         STAB --> PT21
         PT21 --> MIDS
@@ -73,14 +73,14 @@ flowchart TD
     %%  STAGE 3 — Descriptives
     %% ─────────────────────────────────────────────
     subgraph DESC["📊 Step 3 — Descriptive Statistics"]
-        PT3["PAPER_1.pt3_descriptives_rev.4.Rmd\n· Table 1 · missingness\n· pain class summaries"]
+        PT3["suppl_pt3_descriptives_rev.4.Rmd\n· Table 1 · missingness\n· pain class summaries"]
     end
 
     %% ─────────────────────────────────────────────
     %%  STAGE 4 — LTA model (out of scope)
     %% ─────────────────────────────────────────────
     subgraph LTA["📈 Step 4 — LTA Model (out of scope this run)"]
-        PT4["PAPER_1.pt4_LTA_models.Rmd\n· ssupport6_cat derivation\n· k=4 state selection\n· TE and DE models\n· reduced nested models"]
+        PT4["suppl_pt4_LTA_models.Rmd\n· ssupport6_cat derivation\n· k=4 state selection\n· TE and DE models\n· reduced nested models"]
         MODELS[("model_fits/\nTotalEffects · DirectEffects\nfit_reordered_TE/DE\netc.")]
         PT4 --> MODELS
     end
@@ -122,11 +122,11 @@ flowchart TD
 | Stage | File | Key output |
 |---|---|---|
 | 1.2 | `Measurement_invariance_IRT.Rmd` + `Meas.Inv.IRTscoreExtraction.R` | `impactEstimates2-8_partialScalar.rds` |
-| 1 | `PAPER_1.pt1_Data_prep.Rmd` | `H_elsa_w4_6.rds` ✅ clean w4–6 dataset |
+| 1 | `suppl_pt1_Data_prep.Rmd` | `H_elsa_w4_6.rds` ✅ clean w4–6 dataset |
 | **1.1** | **⚠️ NOT YET BUILT** | MAR exploration Rmd |
-| 2 | `PAPER_1.pt2_IMPUTATION_MICE_long.Rmd` | `mice_imputationlong_rev4.rds` |
-| 2.1 | `PAPER_1.pt2.1_DERIVED VARIABLES_rev.4.Rmd` | `mice_updatedMIDS_rev4.rds` ✅ final analysis dataset |
-| 3 | `PAPER_1.pt3_…_descriptives_rev.4.Rmd` | tables / figures (no RDS output) |
-| 4 | `PAPER_1.pt4_LTA_models.Rmd` *(out of scope)* | fitted LTA model RDS files |
+| 2 | `suppl_pt2_IMPUTATION_MICE_long.Rmd` | `mice_imputationlong_rev4.rds` |
+| 2.1 | `suppl_pt2.1_DERIVED VARIABLES_rev.4.Rmd` | `mice_updatedMIDS_rev4.rds` ✅ final analysis dataset |
+| 3 | `suppl_pt3_…_descriptives_rev.4.Rmd` | tables / figures (no RDS output) |
+| 4 | `suppl_pt4_LTA_models.Rmd` *(out of scope)* | fitted LTA model RDS files |
 
 All `eval=F` save chunks are intentional re-run guards — output files pre-exist on disk.
