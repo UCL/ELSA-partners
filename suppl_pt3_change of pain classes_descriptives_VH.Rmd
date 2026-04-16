@@ -874,37 +874,74 @@ Partnership_plot
 
 .. of those who have a partner or spouse
 
-```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
-ssup_plotDF<-H_elsa_w4_6%>%
-           filter(r4partner == 1)
+```{r ssupport-summary-table, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
+# Reshape wide → long: one row per person-wave, partnered observations only
+ssup_long <- H_elsa_w4_6 %>%
+  select(idauniq, ragender,
+         r4partner, r5partner, r6partner,
+         r4ssupport6, r5ssupport6, r6ssupport6) %>%
+  pivot_longer(
+    cols      = c(r4ssupport6, r5ssupport6, r6ssupport6),
+    names_to  = "wave",
+    values_to = "ssupport6"
+  ) %>%
+  mutate(
+    wave    = recode(wave,
+                     r4ssupport6 = "Wave 4",
+                     r5ssupport6 = "Wave 5",
+                     r6ssupport6 = "Wave 6"),
+    partner = case_when(
+      wave == "Wave 4" ~ r4partner,
+      wave == "Wave 5" ~ r5partner,
+      wave == "Wave 6" ~ r6partner
+    )
+  ) %>%
+  filter(partner == 1) %>%
+  select(idauniq, ragender, wave, ssupport6)
 
+ssup_summary <- ssup_long %>%
+  group_by(wave) %>%
+  summarise(
+    n         = n(),
+    n_missing = sum(is.na(ssupport6)),
+    pct_miss  = round(n_missing / n * 100, 1),
+    med       = median(ssupport6, na.rm = TRUE),
+    q25       = quantile(ssupport6, 0.25, na.rm = TRUE),
+    q75       = quantile(ssupport6, 0.75, na.rm = TRUE),
+    .groups   = "drop"
+  ) %>%
+  mutate(
+    `Median [IQR]`  = paste0(round(med, 2), " [", round(q25, 2), ", ", round(q75, 2), "]"),
+    `Missing n (%)`  = paste0(n_missing, " (", pct_miss, "%)")
+  ) %>%
+  select(Wave = wave, `n (partnered)` = n, `Median [IQR]`, `Missing n (%)`)
 
-NA_count_SS<-sum(is.na(ssup_plotDF$r4ssupport6))
-NA_perc_SS<-NA_count_SS/nrow(ssup_plotDF) *100 
-MedianSupport_SS <- median(ssup_plotDF$r4ssupport6, na.rm = TRUE)
+kable(ssup_summary,
+      caption = "Perceived spousal support score (RwSSUPPORT6) at each wave, among partnered participants. Higher scores indicate greater strain (range 1–4). Median = 1.5 at all three waves.")
+```
 
-plot_ssupport<-ggplot(ssup_plotDF, aes(x =r4ssupport6, 
-                        fill = factor(ragender, 
-                                      labels = c("Male", "Female")))) +
+```{r ssupport-distribution-plot, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
+wave_medians <- ssup_long %>%
+  group_by(wave) %>%
+  summarise(med = median(ssupport6, na.rm = TRUE), .groups = "drop")
+
+ggplot(ssup_long, aes(x = ssupport6,
+                      fill = factor(ragender, labels = c("Male", "Female")))) +
   geom_histogram(binwidth = 0.2,
                  position = position_dodge2(preserve = "single", width = 0.25),
                  alpha = 0.8) +
+  geom_vline(data = wave_medians, aes(xintercept = med),
+             linetype = "dotted", colour = "blue") +
+  facet_wrap(~ wave, ncol = 3) +
   scale_x_continuous(breaks = seq(1, 4, 0.5)) +
-  geom_vline(xintercept = MedianSupport_SS, linetype = "dotted", color = "blue") +
   theme_minimal() +
   labs(
-    title = "Marital/partnership strain scores by Gender at Wave 4 (range 1:4)",
-    subtitle = paste0("Dotted line indicates median score = ", round(MedianSupport_SS, 2),
-                      " (higher = greater strain, 4 is max score)"),
-    x = "Marital Strain Score",
-    y = "Frequency",
-    fill = "Gender",
-    caption = paste0("Wave 4 with partners n = ", nrow(ssup_plotDF),
-                     "; missing Marital Strain data n = ", NA_count_SS, 
-                     " (", round(NA_perc_SS,1), "%)")
+    title    = "Perceived spousal support score by wave and sex (partnered participants)",
+    subtitle = "Dotted line = median per wave; higher score = greater strain (range 1–4)",
+    x        = "Spousal Support Score",
+    y        = "Frequency",
+    fill     = "Sex"
   )
-
-plot_ssupport
 ```
 
 ### Clinical Factors
