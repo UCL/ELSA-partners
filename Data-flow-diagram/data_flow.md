@@ -43,9 +43,9 @@ flowchart TD
     end
 
     %% ─────────────────────────────────────────────
-    %%  STAGE 1.1 — MAR (MISSING)
+    %%  STAGE 1.1 — Missing At Random 
     %% ─────────────────────────────────────────────
-    MAR["⚠️ Step 1.1 — MAR Exploration\nsuppl_pt1.1_MAR_exploration.Rmd\nNOT YET BUILT"]
+    MAR["⚠️ Step 1.1 — MAR Exploration\nsuppl_pt1.1_MAR_exploration.Rmd"]
 
     %% ─────────────────────────────────────────────
     %%  STAGE 2 — Multiple imputation
