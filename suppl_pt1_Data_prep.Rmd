@@ -778,8 +778,7 @@ H_elsa_w4_6<- H_elsa_w4_6%>% mutate(
 
 
 ## Partnership classification
-# we create a partnership variable:
-responded is categorised as having a partner if any of the following is true:
+We create a partnership variable that categorises each respondent as having a partner if any of the following is true:
 * r4mstat == 1 ("married")
 * r4mstat == 4 ("partnered")
 * r4mpart == 1 ("whether the respondent partnership is implied")
