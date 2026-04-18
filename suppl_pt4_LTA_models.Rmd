@@ -150,6 +150,24 @@ In this Latent Transition Analysis (LTA) we apply a Latent Markov model with tim
 
 **Time-varying confounders/mediators (DE only):** Depression, Loneliness.
 
+## LTA parametric formulas
+
+### Initial state probabilities
+
+Initial state membership is modelled via multinomial logistic regression with State 1 (no pain, no functional impact) as the reference [@bartolucci2017lmest, p.20]:
+
+$$\log \frac{P(U^{(1)} = u \mid X^{(1)} = x)}{P(U^{(1)} = 1 \mid X^{(1)} = x)} = \log \frac{\pi_{u|x}}{\pi_{1|x}} = \beta_{0u} + x^T\beta_{1u}, \quad u = 2,\ldots,k$$
+
+where $U^{(1)}$ is the initial latent state; $x$ is the covariate vector; $\pi_{u|x}$ is the probability of state $u$ given covariates; $\beta_{0u}$ is the intercept for state $u$; and $\beta_{1u}$ is the vector of covariate coefficients for state $u$.
+
+### Transition probabilities
+
+State transitions are modelled via multinomial logistic regression, with the reference category being the self-transition (staying in the same state) rather than a fixed reference state [@bartolucci2017lmest, p.20]:
+
+$$\log \frac{P(U^{(t)} = u \mid U^{(t-1)} = \bar{u},\, X^{(t)} = x)}{P(U^{(t)} = \bar{u} \mid U^{(t-1)} = \bar{u},\, X^{(t)} = x)} = \gamma_{0\bar{u}u} + x^T\gamma_{\bar{u}u}$$
+
+for $t = 2,\ldots,T$ and $\bar{u} \neq u$. Each transition $\bar{u} \to u$ has its own covariate effect $\gamma_{\bar{u}u}$. Time-homogeneity is assumed (`modbasic = 1`): transition probabilities are constant across measurement occasions. Parameters are estimated via the EM algorithm.
+
 ## TE DE config
 
 ```{r}
