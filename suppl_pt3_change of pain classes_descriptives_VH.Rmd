@@ -1,5 +1,5 @@
 ---
-title: "Change of Pain classes - Descriptive stats and Table 1"
+title: "Supplementary pt.3 — Variable Definitions and Descriptive Statistics"
 author: "Diego Vitali"
 output: 
   github_document:
@@ -40,76 +40,52 @@ H_elsa_w1<-readRDS(paste0(paper1_rds_path,"H_elsa_w1.rds"))
 
 ```
 
-# Introduction
+# Supplementary Material pt.3 — Variable Definitions and Descriptive Statistics
 
-Chronic pain is a complex and pervasive health issue with substantial impact on the daily lives of people with pain and those around them. Understanding of the variables that affect progression of pain over time is very patchy. States of pain and pain impact (Eccleston et al. 2023) are a way to study transitions in pain: worsening, improvement, or stasis. Longitudinal studies are needed to capture these transitions over extended periods.
+This supplementary document provides full variable definitions, data source information, and descriptive statistics for all measures used in the analysis. Sections follow the order of the main paper methods section. Code chunks are shown for reproducibility; all derivations are implemented in `suppl_pt1_Data_prep.Rmd` unless otherwise noted.
 
-Interactions between people in pain and their spouses or partners has conventionally been framed in operant terms, associating positive reinforcement (“solicitous behaviour”: caring, helping, etc) of behaviors that communicate pain with greater disability, and negative reinforcement (“punishing behaviour”: ignoring, criticising, etc.) of these behaviors with less disability (Fordyce 1976; Flor, Kerns, Turk 1987; Romano et al. 1992). Many such associations were drawn from cross-sectional studies, so could also represent greater help from the partner to the more disabled person with pain. They were also moderated by important variables such as sex/gender and relationship quality (Flor, Turk, Rudy 1989). A diary study showed greater pain expression by the person in pain to be followed both by supportive and negative spouse responses (Burns et al. 2015).
+# Variable inventory
 
-This contrasted with theories and data in the broader health field whereby partner support was associated with better, not worse, function of the affected individual (Clark et al. 2018; Jamison & Virts 1990), interpreted using models of intimacy, validation, and stress management (Cano & Williams 2010; Clark et al. 2018). Further, negative partner responses to pain expression were associated with greater distress of both partners and poorer marital satisfaction. A vignette study of people with chronic pain and their spouses (Newton-John & Williams 2000) showed a much wider range of responses than usually sampled, including expressing confidence in the person with pain, waiting to see if help needed, and problem-solving. These three, all possible aids to emotion regulation (Koechlin et al. 2018) ,were most highly valued by people with pain, while provision of (unrequested) help - a common response – made them feel ‘useless’. A recent narrative review (Birkinshaw et al. 2025) of longitudinal studies found that the evidence on partner interactions in pain was scarce and could not support any clear conclusions. Having no partner might also affect pain impact through mood, loneliness, availability of help, or a variety of other possible mechanisms (Birkinshaw et al. 2025).
+The table below summarises all variables entering the LTA model: their analysis name, original ELSA source variable(s), data file, whether they are time-varying, and the transformation applied.
 
-Any analysis of longitudinal change in pain needs to take into account distress: depression is both a predictor of pain (Croft et al. 1995; Falasinnu et al. 2023; Kroenke et al. 2011; Tanguay-Sabourin et al. 2023) and of pain impact (Poole & Steptoe 2018) and a consequence (Blanchflower & Bryson 2022; Kroenke et al. 2011; Mills et al. 2019). Social isolation also contributes to pain impact (Karayannis et al. 2019). Socioeconomic status and wealth, both somewhat neglected in the study of chronic pain, are also implicated, with deprived populations mostly likely to develop chronic pain, and for that pain to be more severe and disabling (Croft & Rigby 1994; Mills et al. 2019), consistent with many chronic disorders (Barnett et al., 2012; Marmot et al., 2020).
+| Role | Analysis variable | ELSA source variable(s) | Source file | Time-varying | Transformation |
+|---|---|---|---|---|---|
+| Outcome indicator | `painchr_ext` | `rXpainfr`, `rXpainlv` (harmonised); `hepag`, `hepawXX` (wave-specific) | `Hg3_w1_9_ALL.tab`; `wave_N_elsa_data_vN.tab` | Yes | Derived: four-level (no pain / acute / localised chronic / multisite chronic); pt1 |
+| Outcome indicator | `lvimp_shifted_cat` | `rXlvimp` items (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | IRT score → zero separation + PAM clustering → three levels; Wave 4 medoids fixed; pt2.1 |
+| Exposure | `partner` | `rXmpart` (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | Binary recoded (0/1); pt1 |
+| Exposure | `ssupport6_cat` | `rXssupport6` (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | Median cut at 1.5 (back-transformed from log1p) → three levels; pt4 |
+| TE confounder | `Sex_BIN` | `ragender` (harmonised) | `Hg3_w1_9_ALL.tab` | No | Binary factor (male reference); pt2 |
+| TE confounder | `raagey_z` | `raagey` = `r4agey` (harmonised) | `Hg3_w1_9_ALL.tab` | No | Standardised; Wave 4 baseline only; pt1 |
+| TE confounder | `raeduc_e` | `raeduc_e` (harmonised) | `Hg3_w1_9_ALL.tab` | No | −15 recoded to “other”; five-level factor; pt1 |
+| TE confounder | `wealthQ_bin` | `rXnettotw_bu_s`, `rXtotwq5_bu_s` | `wave_N_financial_derived_variables.tab` | Yes | Quintiles binarised Q1–Q2 vs Q3–Q5; pt2.1 |
+| TE confounder | `MLTC` | `rXangine`, `rXstroke`, `rXdiabe`, `rXlunge`, `rXarthre`, `rXcancre`, `rXalzhe`, `rXdemene`, `rXpsyche`, `rXparkine` (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | Count → categorical (0/1/2/3+); pt1 |
+| DE confounder | `cesd_lat_shifted` | `rXcesd` items (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | CFA latent score (metric invariance model); shifted to non-negative before imputation; pt2 |
+| DE confounder | `loneliness_group` | `rXlnlys` (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | PAM clustering → binary (low/high; medoids 1.00, 1.75); pt2.1 |
 
-We therefore used our characterisation of pain and pain impact as states and transitions, over four years of a large longitudinal cohort, to address (1) whether having a partner vs not having a partner was associated with particular states or transitions; (2) whether poor partner support was associated with worse states and higher likelihood of transition to worse state; and (3)
-
-whether having vs not having a partner, and quality of partner support, explained unique variance in states and transitions beyond sociodemographic and baseline health covariates of depression, loneliness, and wealth.
-
-## Primary hypotheses:
-1. $H_1$ (Partnership and Support Quality): Latent health state membership and/or transition probabilities differ across the three partnership/support categories (no partner, above median support, below median support). Specifically, having a supportive or less than supportive partner is associated with distinct latent health states and transition patterns compared to having no partner.
-2. $H_2$ (Joint Effect Beyond Covariates): The categorical partnership/support variable explains unique variance in latent state membership and transitions beyond sociodemographic factors, baseline health covariates, and sex.
-3. $H_3$ (Sex Moderation) The effects of partnership/support category on latent state membership and transitions differ between men and women; i.e., sex moderates the associations between partnership/support quality and latent health trajectories.
-
-Recent work by [@tanguay2023prognostic] demonstrated that mood is one of the strongest predictors of pain spreading and of worse chronic pain outcomes overtime
+Note: `hrtatte` (myocardial infarction) is present in the data but excluded from MLTC by design — CHD is represented by angina (`rXangine`) only, following [@poole2020combined].
 
 # Methods
-
-## Study population
-
-This study analysed data from the English Longitudinal Study of Ageing (ELSA), a large, nationally representative cohort designed to investigate aging-related health, social, and economic factors among adults aged 50 and over in England. ELSA  assessed at regular intervals (waves), providing repeated measures of physical health, psychosocial variables, and socioeconomic status. This rich longitudinal dataset enables the study of dynamic trajectories in health outcomes, including chronic pain and its impact on daily functioning.
-
-## Sample and measures
-
-The analytic sample comprised participants aged 50 years and older at Wave 4 (baseline for this study) who completed assessments at three consecutive waves: Wave 4, Wave 5 (approximately 2 years later), and Wave 6 (approximately 4 years after baseline). Eligible participants provided self-reported data related to pain intensity, pain duration, and the number of pain sites, enabling precise diagnostic characterization of acute versus chronic pain states. In addition, an item response theory (IRT)-based continuous measure captured the health impact of pain, reflecting impairments in self-care and productivity. Covariates assessed at baseline included demographic characteristics (age, sex), socioeconomic indicators (wealth quintiles, education), health behaviors (smoking, physical activity), psychological measures (depression, loneliness), and social factors (partner status, marital strain). Comprehensive data harmonization and multiple imputation procedures addressed missing data and optimized longitudinal analyses. The study applied latent transition analysis to identify distinct health states that capture both the presence of chronic pain and the experience of impact on daily activity and work experience by respondents. The latent transition analysis then allowed to study pain trajectories and examine predictors of transitions between health states over the 4 year period time. 
 
 
 ### Outcome Measures
 
 #### Chronic Pain indicator variables
 
-Two categorical pain indicator variables were included in the LTA model
-of pain between Wave 4, Wave 5 and Wave 6. The first variable classifies
-cases between no-pain, acute pain, chronic pain; the second variable
-classifies the levels of pain on whether they are at least moderate or
-severe (yes or no); the third variable classifies the experience of 4
-levels of difficulty of the respondent in carrying out daily self-care
-and productivity activities.
+Chronic pain status (`painchr_ext`) was derived from four ELSA items: `rXpainfr` ("are you often troubled by pain?"), `rXpainlv` (usual pain level: none / mild / moderate / severe), `hepag` ("how long has the pain been bothering you?"), and a count of pain body locations. Note that `hepag` and the location items are wave-specific variables not available in the harmonised dataset and were merged from the ELSA core wave files. We first classified participants as having no pain (`rXpainfr` = 0), acute pain (`rXpainfr` = 1 and `hepag` < 3 months), or chronic pain (`rXpainfr` = 1 and `hepag` ≥ 3 months) [@guideline2021chronic; @kang2023chronic; @nicholas2019iasp]. Among those meeting the chronic pain criterion, we further distinguished those reporting pain in three or more body locations from those reporting pain in two or fewer. This was not implemented as a diagnostic criterion for widespread pain because ELSA only assesses pain at seven body locations, which precludes an appropriate implementation of validated widespread pain criteria [@wolfe2019cwp]. Instead, this was a pragmatic choice to retain information about pain diffuseness within the chronic pain category. In the context of the present LTA model, this approach recognises that respondents with localised and more diffuse chronic pain may represent clinically distinct phenotypes, and allows the latent states to reflect this difference if present.
 
-Chronic pain variables:
+Source items:
 
--   hepain "*are you often troubled by pain*"
-    -   Yes/No
--   hepain "*How bad is the pain most of the time?*"
-    -   Mild
-    -   Moderate
-    -   Severe
--   hepag "*How long has the pain been bothering you? Has it been...*"
-    -   ...less than 3 months,
-    -   more than 3 months, but less than 6 months,
-    -   more than 6 months, but less than 12 months,
-    -   or more than 12 months?
+-   `rXpainfr` — frequent pain (harmonised): 0 = no, 1 = yes
+-   `rXpainlv` — pain severity (harmonised): 0 = none, 1 = mild, 2 = moderate, 3 = severe
+-   `hepag` — pain duration (wave-specific): < 3 months / 3–6 months / 6–12 months / > 12 months
+-   `hepawba`, `hepawhi`, `hepawkn`, `hepawfe`, `hepawmo`, `hepawot`, `hepawal` — pain locations (wave-specific): back, hips, knees, feet, mouth/teeth, elsewhere, all over
 
-If pain has been present over a period of 3 months or longer we consider
-this as chronic pain.
+Resulting four-level indicator (`painchr_ext`):
 
-From these items we derive two indicators:
-
-1.  *rXpainchr* as a 3 category variable:
-    -   0: No pain
-    -   1: Acute pain (persisting \<3m)
-    -   2: Chroni pain (persisting \>=3m)
-2.  *rXpainsev* as 2 category variable
-    -   0: no pain or mild aches
-    -   1: moderate or severe pain
+-   0: No pain
+-   1: Acute pain (pain present, duration < 3 months)
+-   2: Localised chronic pain (duration ≥ 3 months, ≤ 2 locations)
+-   3: Multisite chronic pain (duration ≥ 3 months, ≥ 3 locations)
     
 #### Pain Spread
 
@@ -124,157 +100,87 @@ Number of pain sites each wave detected with the following items at wave
 -   hepawot *Whether feel pain elsewhere*
 -   hepawal *Whether feel pain all over*
 
-#### Health Impact variables:
+#### Functional health impact (`lvimp_shifted_cat`)
 
-The continuous measure of Health impact is an IRT-based measure that
-shows evidence of scalar and metric invariace in this dataset (see
-supplementary material on measurement invariance). However, this measure
-is zero inflated and visual examination of the density plot shows
-potential multimodality. In order to better capture the multimodalily of
-measurement values, we will parametrise (via [clustering][3]) the
-scoring of this variable into a categorical variable with $n$ levels.
-following 3 steps:
+The continuous IRT-based health impact score (`rXlvimp`) shows partial scalar measurement invariance across waves (see supplementary material pt.1.2). The score is zero-inflated with evidence of multimodality in the non-zero portion. We categorised it into three levels using a two-part approach:
 
-1.  we separate the "zeros" (which represent the respondents who did not
-    present limitations with the life activities proposed in the health
-    impact questionnaire);
-2.  We use NbClust [@charrad2014nbclust] to examine the remaining
-    (non-zero) portion of the distribution. We prioritise silhouette
-    (with a 0.5 threshold) indexes and we will handle potential
-    conflicts by chosing the more parsimonious number of cluster to
-    prevent overparametrisation and identify a most suitable number of
-    scoring clusters. 2.1 We use a PAM algorithm [@saxena2017review] to
-    determine the medioid ("center") of each cluster, and we evaluate
-    cluster validtiy via sihouette width [@arbelaitz2013extensive;
-    @rousseeuw1987silhouettes]. This procedure will help determine
-    whether the cluster solution is overparametrised or can be accepted.
-    2.2. We boostrap the final estimate of position of the medioids
-    (2000 replicates)
-3.  We use the mean bootstrapped cluster medioids determined at baseline
-    (wave 4) to parametrise the health impact measure across the two
-    subsequent waves.
+1. Zero-scorers were assigned to category 0 (no detectable functional impairment) a priori, as structural zeros on the IRT scale represent a qualitatively distinct state.
+2. The non-zero portion (scores > 0.1; the 0.1 threshold excludes artefactual near-zero scores arising from freed item intercepts under partial scalar invariance) was clustered using PAM [@saxena2017review] with the number of clusters selected via NbClust [@charrad2014nbclust] and validated by silhouette width [@rousseeuw1987silhouettes]. A k = 3 solution was selected, yielding medoids of 0.879, 1.392, and 2.025 on the IRT scale.
+3. Bootstrap resampling (2,000 iterations) confirmed stability of the Wave 4 medoids. These were applied as fixed reference centres to waves 5 and 6: each observation was assigned to the nearest medoid by absolute distance, ensuring a consistent categorisation scale across waves.
+
+The final three-level indicator (`lvimp_shifted_cat3`) used in the LTA:
+
+-   0: No functional impairment (structural zeros)
+-   1: Some health impact (PAM clusters 1–2, medoids 0.879 and 1.392 merged)
+-   2: High health impact (PAM cluster 3, medoid 2.025)
+
+Full derivation code is in `suppl_pt2.1_DERIVED VARIABLES_VH.Rmd`.
     
 
 
-### Predictors
+### Exposure
 
-#### Partnership status
-rXpartner is a binary indicator coded 0 for no partner and 1 for having a partner
+#### Partnership status and spousal support (`ssupport6_cat`)
 
-#### Marital Support/Strain
+Partnership quality was formalised as a three-level exposure variable combining partner status with a measure of perceived spousal support. Partner status (`rXmpart`) distinguished participants with and without a partner at each wave (0 = no partner, 1 = partner).
 
-Marital strain is defined only for partnered individuals (and set to 0 when not partnered) so that strain represents an additional within-partner effect.
+Among partnered participants, perceived spousal support was assessed via `rXssupport6`, a composite of six items:
 
-rXssupport6 indicates the mean of the six different spouse questions:
+-   `RwSUSTDFE` — spouse really understands the way the respondent feels
+-   `RwSRELY` — respondent can rely on their spouse if they have a serious problem
+-   `RwSOPENUP` — respondent can open up to their spouse when they need to talk about worries
+-   `RwSCRITZE` — spouse criticises the respondent
+-   `RwSLETDOW` — spouse lets the respondent down when counting on them
+-   `RwSGETNEV` — spouse gets on the respondent’s nerves
 
--   RwSUSTDFE, the respondent feels their spouse really understands the
-    way they feel about things.
--   RwSRELY, the respondent feels they can rely on their spouse if they
-    have a serious problem.
--   RwSOPENUP, the respondent feels they can open up to their spouse
-    when they need to talk about their worries.
--   RwSCRITZE, the respondent feels their spouse criticizes them.
--   RwSLETDOW the respondent feels their spouse let them down when they
-    are counting on them.
--   RwSGETNEV the respondent feels their spouse gets on their nerves.
+Each item is scored 1–4; higher values indicate lower perceived support. The composite is right-skewed with a median of 1.5 at each wave (see distribution plots and summary table below). Partnered participants were divided at the median: those scoring ≤ 1.5 (supportive partner) and those scoring > 1.5 (less-than-supportive partner). Combined with the no-partner group, this yields a three-level exposure: no partner (reference), less-than-supportive partner, and supportive partner.
 
-RwSSUPPORT6 is a composite score summarizing respondents’ perceptions of 
-spousal support, derived from six questions assessing aspects of emotional 
-understanding, reliability, openness, criticism, disappointment, and annoyance 
-within the marital or partnership relationship. Each question is scored such 
-that higher values indicate greater lack of support from the spouse. Scores near 
-1 reflect high perceived support, indicating the spouse is seen as understanding,
-reliable, open to communication, and not critical or annoying. Scores near 4 indicate
-low perceived support, meaning respondents rarely feel their spouse is supportive 
-or dependable. The distribution of this score is right-skewed with median at 1.5 in each wave. 
+### Confounders
 
+Full confounder selection rationale and causal DAGs are in the Confounder selection section below. Variable definitions follow.
 
-To model this variable meaningfully, we applied a median based parametrisatisation to divide 
-respondents into two distinct categories:
+#### Sex (`ragender` / `Sex_BIN`)
 
-* Supportive partner (lower than median RwSSUPPORT6 scores, indicating higher perceived support)
-* Strained support (higher than median RwSSUPPORT6 scores, indicating lower perceived support)
+Binary variable; male coded as reference category. Time-invariant.
 
-This parametrisation helps transform the continuous, skewed support score into meaningful 
-and analytically useful that reflect qualitatively different partnership support experiences.
+#### Age (`raagey` / `raagey_z`)
 
-### Covariates
+Continuous, standardised. Wave 4 baseline age used throughout as a time-invariant predictor [@maharani2023household].
 
-We evaluate the effect of the selected covariates at baseline on:
+#### Education (`raeduc_e`)
 
-1.  transitioning between classes, from Wave 4 (baseline) to Wave 5; and
-2.  the effect of the same covariates, this time measured at Wave 5, on
-    transitioning between classes, from Wave 5 to Wave 6.
+Educational attainment was classified using the IFS Derived Variables highest qualification summary, based on the first non-missing report across waves [@banks2025english]. Five levels: less than secondary, other, secondary, some college, college and above. The value −15 (ambiguous response) was recoded to category 2 ("other education"). Time-invariant.
 
-#### Demographics
+#### Wealth (`rXnettotw_bu_s` / `wealthQ_bin`)
 
-Demographics included:
+Total net non-pension household wealth (`nettotw_bu_s`) is a summary measure of financial, physical, and housing wealth minus debt, estimated from 22 components by the ELSA data depositors [@torres2016wealth; @demakakos2016wealth]. A detailed description is available at the UK Data Service documentation. Wealth quintiles (`totwq5_bu_s`) were binarised into the lowest two quintiles versus quintiles 3–5 (`wealthQ_bin`). Time-varying; sourced from wave-specific financial derived files (not the harmonised dataset).
 
--   *rXagey* age, We categorised age into four groups (50–59; 60–69;
-    70–79; 80+). E.g [@maharani2023household]
--   *ragender* sex (a binary variable with male as reference),
--   *raracem* ethnicity (a binary variable with white as reference),
--   *rXmpart* whether a respondent partnership is implied in the current
-    wave. A code of 0 indicates that the respondent is not implied to be
-    partnered while a code of 1 indicates the respondent is implied to
-    be partnered.
+#### Multiple long-term conditions (`MLTC`)
 
-##### Wealth
+Count of doctor-diagnosed conditions categorised as 0, 1, 2, or 3 or more. Conditions included following [@poole2020combined]:
 
--   *nettotw_bu_s*. Total net non-pension household wealth
-    (non-harmonised).
--   *totwq5_bu_s*: Splits *nettotw_bu_s* into quintiles
-    (non-harmonised).
+-   CHD (angina; myocardial infarction excluded by design — represented by angina only)
+-   Stroke
+-   Diabetes / high blood glucose
+-   Pulmonary disease (chronic bronchitis, emphysema)
+-   Arthritis (osteoarthritis, rheumatoid, unspecified)
+-   Cancer
 
-Total net non-pension household wealth is represented in ELSA with
-*nettotw_bu_s*, that is a summary measure of the value of financial,
-physical and housing wealth owned by the household (ie, a single
-respondent or a responding couple along with any dependent individuals)
-minus any debt. The estimation of this variable is based on 22 different
-wealth and debt components, which were either observed or imputed
-[@torres2016wealth; @demakakos2016wealth]. The imputed wealth and debt
-components were integral part of the original ELSA data set and
-generated by the data depositors and not the authors of this study. Most
-of these imputations referred to incomplete values in one or two
-components and were based on information that the participants provided
-about the upper and lower boundaries within which the actual values of
-those components lay. A detailed description of wealth and its
-components can be found at: <https://doc.ukdataservice.ac.uk/doc/5050/mrdoc/pdf/5050_user_guide_financial_derived_vars.pdf>.
+Extended to include [@simpson2023eliciting]:
 
-We add these variables into the harmonised datates as
+-   Parkinson's disease
+-   Hypertension
+-   Asthma
+-   Arrhythmia
+-   Mental health disorders (depression, anxiety, psychosis)
+-   Alzheimer's disease
+-   Dementia
 
--   *"rXnettotw"* : net total wealth
--   *"rXnettotw_q"*: net total wealth as quintile
+Note: mental health disorders appear as a countable MLTC condition following [@simpson2023eliciting]; depression is additionally included as a continuous latent score in the DE model, where it acts as a covariate rather than an outcome indicator.
 
-#### Physical health
+#### Depression (`rXcesd` / `cesd_lat_shifted`)
 
-**MLTC**\
-Defined as the count of doctor-diagnosed illnesses among (categories
-usind in [@poole2020combined]): - CHD (angina \| myocardial
-infarction) - stroke - diabetes/high blood glucose - pulmonary disease
-(chronic bronchitis, emphysema) - arthritis (osteoarthritis \|
-rheumatoid \| arthritis type not specified) - cancer
-
-additional categories used in [@torres2016wealth] - Parkinson -
-cardiovascular diseases (high blood pressure, angina, heart attack,
-heart failure, heart murmur or heart rhythm)
-
-additional categories used in [@simpson2023eliciting]: - hypertension, -
-asthma, - arrhythmia, - mental health disorders (depression, anxiety,
-emotional problems, hallucinations, schizophrenia, psychosis), -
-Alzheimer's disease, - dementia
-
-The extended number of conditions in [@simpson2023eliciting] were
-selected based on previous research and Delphi consensuses defining
-MLTC.
-
-#### Mental health
-
-"Depression (CES-D)"
-
-RwCESD is the sum of RwDEPRES, RwEFFORT, RwSLEEPR, RwFLONE, RwFSAD,
-RwGOING, (1-RwWHAPPY) and (1-RwENLIFE). Thus the higher the score, the
-more negative the respondent's feelings were during the past week.
+Depression was assessed using the seven-item CES-D scale. `RwCESD` is the sum of `RwDEPRES`, `RwEFFORT`, `RwSLEEPR`, `RwFLONE`, `RwFSAD`, `RwGOING`, `(1 − RwWHAPPY)`, and `(1 − RwENLIFE)`; higher scores indicate more negative affect. A latent factor score was derived from a confirmatory factor analysis (metric invariance model) and shifted to be non-negative prior to imputation (`cesd_lat_shifted`) [@karim2015validation]. Time-varying.
 
 #### Loneliness
 
@@ -286,164 +192,17 @@ score. RwLNLYS is coded to make sure that higher scores indicate that the
 respondent feels more lonely.
 
 
-## Analysis
+## Confounder selection
 
-We apply a Latent Transition Analysis (LTA) approach using the LMest
-package[@bartolucci2017lmest]. This method allows to apply Latent Markov
-model with time-varying categorical indicators to empirically determine
-latent Markov states, and thep probability of subjects to move between
-these unobserved states over time. Here we capture both the initial
-states probability distribution and the probability of the temporal
-transitions between latent states. Both components are then parametrised
-with multinomial logistic regression via which we determine the effects
-of our covariates of interest. The initial probabilities employ a
-reference-state approach (taking state 1 as reference) to estimate the
-likelihood of a respondent starting in each latent state at the first
-timepoint. Transition probabilities are also modeled with a reference
-category but instead of being fixed to "state 1", the probability of
-transition from one state to another are estimated in reference to
-stability (i.e. "staying in the same state). This is the default
-analytical pipeline of LMEST() and allows to estimate how covariates
-(either continuous or categorical) affect the likelihood of a respondent
-changing state. This analysis is carried out with the assumption of
-time-invariant transition probabilities (modbasic = 1), which assumes
-constant transition probabilities across measurement occasions. A
-comparison method is presented relaxing the assumption of
-time-invariance and models are then compared using goodness of fit
-indexes. Within each model, parameters are estimated using a
-Expectation-Maximization (EM) algorithm, which iteratively maximizes the
-likelihood despite the unobservable nature of the latent states.
-**DIEGO: remember to add something about local minima, random starting
-points, and boostrapped SE**
+Following the disjunctive cause criterion [@vanderweele2011criterion], as formalised by @pearl2009causality, variables were included as confounders if they have plausible directed paths to both the partnership quality exposure and the pain-state outcome. Full causal DAGs and dagitty-derived adjustment sets are presented in Figures 2 and 3 of the supplementary material (see `draw_dags.R`).
 
-Modeling Framework: Time-homogeneous latent Markov model (k states).
+The LTA model specification and parametric formulas (initial state and transition probability equations) are documented in supplementary material pt.4.
 
-Exposures and confounders enter the latent model (initial state probabilities and transition probabilities). The emission (measurement) model does not include these covariates by default. However *there will be direct effects on emissions*: Covariates will affect the emission model only if explicitly pre-specified a priori for particular outcomes (e.g., to account for known reporting/measurement differences). Any such emission covariates will be listed in advance and limited to those outcomes with strong theoretical justification.
+# Descriptive Results
 
-Primary estimand: Total effects of partnership and marital strain on baseline state and transition probabilities, adjusting for a prespecified confounder set (demographics, socioeconomic status, and baseline health burden), implemented parsimoniously via component scores where appropriate.
+We present the baseline levels of all measures; where relevant we compare them with Wave 1 data, which was directly sampled from the 2001 Health Survey for England (HSE) and serves as a benchmark for population representativeness.
 
-
-
-
-### Predicting initial probabilities
-
-Multinomial logistic regression is used to estimate the initial
-probabilities. The latent class 1 (“state” 1) is treated as the
-reference category. The coefficients are log-odds ratios comparing each
-non-reference category to the reference category. Therefore they
-represent the log-odds of being in state 2 rather than state 1, and
-those of being in state 3 rather than state 1 respectively. As a
-reminder, the logit function is the natural logarithm of the odds that a
-particular event will occur. This functions helps to map probability
-values (which are between 0 and 1) to real numbers that can range from
-negative infinity to positive infinity:
-
-**EQ.1** $$logit(p) = ln \left(\frac{p}{1-p}\right)$$
-
-Where p is the probability of the event occurring, and ln is the natural
-logarithm and p/(1-p) is the odds ratio of p.
-
-As for the LMest package paper [@bartolucci2017lmest]. The initial
-probabilities are defined with this equation:
-
-**EQ.2**
-$$\log \frac{P(U^{(1)} = u|X^{(1)} = x)}{P(U^{(1)} = 1|X^{(1)} = x)} = \log \frac{\pi_{u|x}}{\pi_{1|x}} = \beta_{0u} + x^T\beta_{1u}, \quad u = 2,\ldots,k$$
-
-where, $U^{(i)}$ represents the initial latent state; $x$ is the vector
-of covariates; $\pi_{u|x}$ is the probability of being in state u given
-covariates $x$; $\pi_{1|x}$ is the probability of being in state 1
-(reference state) given covariates $x$; $\beta_{0u}$ is the intercept
-for state $u$; $\beta_{1u}$ is the vector of coefficients for the
-covariates for state $u$; and $u$ ranges from 2 to $k$ number of states.
-
-In multinomial logistic regression, one category of the dependent
-variable is typically chosen as the reference category – in our case it
-is a reference *latent state*. The model then estimates the odds ratios
-for all independent variables for each category of the dependent
-variable with the exception of the reference category, which omitted
-from the analysis. Setting these coeficients to zero in the reference
-category avoids redundancy and ensure model identifiability (e.g.
-[Markov models with multinomial logistic
-regression](https://cran.r-project.org/web/packages/hesim/vignettes/mlogit.html)
-and [Multinomial logistic
-regression](https://bookdown.org/chua/ber642_advanced_regression/multinomial-logistic-regression.html)).
-
-In accordance with this approach, we see the four colums (2:5) that
-compare the log-odds of being in state (e.g) “2” versus being in the
-reference state (state 1). **The column for state 1 is omitted because
-it is the reference category or state**. The following table from the
-output of LMest presents the exponential beta coefficients representing
-the change in the odds for someone being in a partiticular state versus
-being in the reference state “1”.
-
-### Predicting transition probabilities
-
-*Initial assumption* This model was set as modbasic = 1 (that is: the
-effect on transition was assumend to be invariant between timepoints).
-Therefore, we estimate transition probability assuming to be constant
-from one time to another. I.e., the case in which the probability of
-transitioning from state 1 to state 2 will be the same whether the
-transition happens at time 1, time 2, time 3 $$..$$.
-
-The Transition probabilities are determined as follow:
-
-**EQ.3**
-$$\log \frac{P(U^{(t)} = u|U^{(t-1)} = \bar{u}, \mathbf{X}^{(t)} = x)}{P(U^{(t)} = \bar{u}|U^{(t-1)} = \bar{u}, \mathbf{X}^{(t)} = x)} = \log \frac{\pi_{u|\bar{u}x}^{(t)}}{\pi_{\bar{u}|\bar{u}x}^{(t)}} = \gamma_{0\bar{u}u} + x^T\gamma_{\bar{u}u}$$
-
-for $t = 2, \ldots , T$ and $\bar{u},u = 1, \ldots, k$, **with**
-$\bar{u}\not=u$. [@bartolucci2017lmest, p.20].
-
-Here we notice that:
-
-1.  $\pi_{u|\bar{u}x}^{(t)}$ is the probability of transitioning to
-    state $u$ at time $t$, given that the previous state was $\bar{u}$
-    and the covariate value is $x$.
-2.  $\pi_{\bar{u}|\bar{u}x}^{(t)}$ is the probability of staying in the
-    same state $\bar{u}$ at time $t$ given the covariate value is $x$.
-
-In this parametrisation, each transition has its own covariate effect
-$\gamma_{\bar{u}u}$. The transition probabilities are also presented
-here using a reference category approach. However, this time the
-reference category is the transition to the same state or “staying in
-the same state” – note that in EQ3 we have
-$\pi_{\bar{u}|\bar{u}x}^{(t)}$ and not $\pi_{1|\bar{u}x}^{(t)}$).
-
-### Confounder identification
-
-We begin with theory-driven selection of: 1. known variables associated
-with the development and maintenance of CP and high health impact
-connected with chronic pain. 2. known variables that are know to be
-associated with social support, chronic pain, and high impact chronic
-pain.
-
-### Confounder selection
-
-The most rigorous approach to confounder selection is based on causal
-inference theory using Directed Acyclic Graphs (DAGs), as formalized by
-Pearl (2009) and further developed by VanderWeele and Shpitser (2011).
-
-VanderWeele and Shpitser (2011) proposed the "disjunctive cause
-criterion" for confounder selection, which states that variables should
-be adjusted for if they are:
-
--   Causes of the exposure (Marital Strain & partnership status)
--   Causes of the outcome
--   Causes of both exposure and outcome
-
-We start by examining bivariate associations between potential
-confounders and
-
-1.  our main exposure (Marital Strain)
-2.  our outcome variables chronic pain and health impact
-
-# RESULTS
-
-We present the baseline levels of all measures and where relevant we
-compare them with Wave 1 data because the latter was directly sampled
-from 2001 HSE (Health survey for Englad) and represent here a benchmarck
-sample in terms of how it represent England population in 2002.
-
-## Table1
+## Table 1
 
 ### Demographic Factors
 
