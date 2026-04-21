@@ -684,7 +684,7 @@ trans_combined <- bind_rows(
     Direction = case_when(
       Transition %in% hicp_transitions     ~ "Toward HICP",
       Transition %in% recovery_transitions ~ "Recovery from HICP",
-      Transition == "3 -> 1"               ~ "Improvement",
+      Transition == "3 -> 1"               ~ "functioning Improvement",
       TRUE                                  ~ "Maintenance"
     )
   )
