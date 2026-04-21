@@ -1,9 +1,10 @@
 ---
 title: "Supplementary pt.3 — Variable Definitions and Descriptive Statistics"
 author: "Diego Vitali"
-output: 
+output:
   github_document:
     toc: True
+    number_sections: true
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 editor_options: 
   markdown: 
@@ -40,11 +41,11 @@ H_elsa_w1<-readRDS(paste0(paper1_rds_path,"H_elsa_w1.rds"))
 
 ```
 
-# Supplementary Material pt.3 — Variable Definitions and Descriptive Statistics
+# Supplementary Material pt.3 — Variable Definitions and Descriptive Statistics {.unnumbered}
 
 This supplementary document provides full variable definitions, data source information, and descriptive statistics for all measures used in the analysis. Sections follow the order of the main paper methods section. Code chunks are shown for reproducibility; all derivations are implemented in `suppl_pt1_Data_prep.Rmd` unless otherwise noted.
 
-# Variable inventory
+# Variable Inventory
 
 The table below summarises all variables entering the LTA model: their analysis name, original ELSA source variable(s), data file, whether they are time-varying, and the transformation applied.
 
@@ -57,19 +58,18 @@ The table below summarises all variables entering the LTA model: their analysis 
 | TE confounder | `Sex_BIN` | `ragender` (harmonised) | `Hg3_w1_9_ALL.tab` | No | Binary factor (male reference); pt2 |
 | TE confounder | `raagey_z` | `raagey` = `r4agey` (harmonised) | `Hg3_w1_9_ALL.tab` | No | Standardised; Wave 4 baseline only; pt1 |
 | TE confounder | `raeduc_e` | `raeduc_e` (harmonised) | `Hg3_w1_9_ALL.tab` | No | −15 recoded to “other”; five-level factor; pt1 |
-| TE confounder | `wealthQ_bin` | `rXnettotw_bu_s`, `rXtotwq5_bu_s` | `wave_N_financial_derived_variables.tab` | Yes | Quintiles binarised Q1–Q2 vs Q3–Q5; pt2.1 |
-| TE confounder | `MLTC` | `rXangine`, `rXstroke`, `rXdiabe`, `rXlunge`, `rXarthre`, `rXcancre`, `rXalzhe`, `rXdemene`, `rXpsyche`, `rXparkine` (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | Count → categorical (0/1/2/3+); pt1 |
+| TE confounder | `wealthQ_bin` | `rXnettotw_bu_s`, `rXtotwq5_bu_s` | `wave_N_financial_derived_variables.tab` | Yes | Worst-off quintile (Q1) vs all others (Q2–Q5); pt2.1 |
+| TE confounder | `MLTC` | `rXangine`, `rXstroke`, `rXdiabe`, `rXlunge`, `rXarthre`, `rXcancre`, `rXpsyche` (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | Count → categorical (0/1/2/3+); pt1 |
 | DE confounder | `cesd_lat_shifted` | `rXcesd` items (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | CFA latent score (metric invariance model); shifted to non-negative before imputation; pt2 |
 | DE confounder | `loneliness_group` | `rXlnlys` (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | PAM clustering → binary (low/high; medoids 1.00, 1.75); pt2.1 |
 
 Note: `hrtatte` (myocardial infarction) is present in the data but excluded from MLTC by design — CHD is represented by angina (`rXangine`) only, following [@poole2020combined].
 
-# Methods
+# Variable Definitions
 
+## Outcome Indicators
 
-### Outcome Measures
-
-#### Chronic Pain indicator variables
+### Chronic pain status (`painchr_ext`)
 
 Chronic pain status (`painchr_ext`) was derived from four ELSA items: `rXpainfr` ("are you often troubled by pain?"), `rXpainlv` (usual pain level: none / mild / moderate / severe), `hepag` ("how long has the pain been bothering you?"), and a count of pain body locations. Note that `hepag` and the location items are wave-specific variables not available in the harmonised dataset and were merged from the ELSA core wave files. We first classified participants as having no pain (`rXpainfr` = 0), acute pain (`rXpainfr` = 1 and `hepag` < 3 months), or chronic pain (`rXpainfr` = 1 and `hepag` ≥ 3 months) [@guideline2021chronic; @kang2023chronic; @nicholas2019iasp]. Among those meeting the chronic pain criterion, we further distinguished those reporting pain in three or more body locations from those reporting pain in two or fewer. This was not implemented as a diagnostic criterion for widespread pain because ELSA only assesses pain at seven body locations, which precludes an appropriate implementation of validated widespread pain criteria [@wolfe2019cwp]. Instead, this was a pragmatic choice to retain information about pain diffuseness within the chronic pain category. In the context of the present LTA model, this approach recognises that respondents with localised and more diffuse chronic pain may represent clinically distinct phenotypes, and allows the latent states to reflect this difference if present.
 
@@ -86,21 +86,8 @@ Resulting four-level indicator (`painchr_ext`):
 -   1: Acute pain (pain present, duration < 3 months)
 -   2: Localised chronic pain (duration ≥ 3 months, ≤ 2 locations)
 -   3: Multisite chronic pain (duration ≥ 3 months, ≥ 3 locations)
-    
-#### Pain Spread
 
-Number of pain sites each wave detected with the following items at wave
-4,5, and 6
-
--   hepawba *Whether feel pain in back*
--   hepawhi *Whether feel pain in hips*
--   hepawkn *Whether feel pain in knees*
--   hepawfe *Whether feel pain in feet*
--   hepawmo *Whether feel pain in mouth or teeth*
--   hepawot *Whether feel pain elsewhere*
--   hepawal *Whether feel pain all over*
-
-#### Functional health impact (`lvimp_shifted_cat`)
+### Functional health impact (`lvimp_shifted_cat`)
 
 The continuous IRT-based health impact score (`rXlvimp`) shows partial scalar measurement invariance across waves (see supplementary material pt.1.2). The score is zero-inflated with evidence of multimodality in the non-zero portion. We categorised it into three levels using a two-part approach:
 
@@ -118,9 +105,9 @@ Full derivation code is in `suppl_pt2.1_DERIVED VARIABLES_VH.Rmd`.
     
 
 
-### Exposure
+##Exposure
 
-#### Partnership status and spousal support (`ssupport6_cat`)
+### Partnership status and spousal support (`ssupport6_cat`)
 
 Partnership quality was formalised as a three-level exposure variable combining partner status with a measure of perceived spousal support. Partner status (`rXmpart`) distinguished participants with and without a partner at each wave (0 = no partner, 1 = partner).
 
@@ -135,29 +122,29 @@ Among partnered participants, perceived spousal support was assessed via `rXssup
 
 Each item is scored 1–4; higher values indicate lower perceived support. The composite is right-skewed with a median of 1.5 at each wave (see distribution plots and summary table below). Partnered participants were divided at the median: those scoring ≤ 1.5 (supportive partner) and those scoring > 1.5 (less-than-supportive partner). Combined with the no-partner group, this yields a three-level exposure: no partner (reference), less-than-supportive partner, and supportive partner.
 
-### Confounders
+## Confounders — TE set
 
-Full confounder selection rationale and causal DAGs are in the Confounder selection section below. Variable definitions follow.
+Full confounder selection rationale and causal DAGs are in Section 2.5 below. Variable definitions follow.
 
-#### Sex (`ragender` / `Sex_BIN`)
+### Sex (`ragender` / `Sex_BIN`)
 
 Binary variable; male coded as reference category. Time-invariant.
 
-#### Age (`raagey` / `raagey_z`)
+### Age (`raagey` / `raagey_z`)
 
 Continuous, standardised. Wave 4 baseline age used throughout as a time-invariant predictor [@maharani2023household].
 
-#### Education (`raeduc_e`)
+### Education (`raeduc_e`)
 
 Educational attainment was classified using the IFS Derived Variables highest qualification summary, based on the first non-missing report across waves [@banks2025english]. Five levels: less than secondary, other, secondary, some college, college and above. The value −15 (ambiguous response) was recoded to category 2 ("other education"). Time-invariant.
 
-#### Wealth (`rXnettotw_bu_s` / `wealthQ_bin`)
+### Wealth (`rXnettotw_bu_s` / `wealthQ_bin`)
 
-Total net non-pension household wealth (`nettotw_bu_s`) is a summary measure of financial, physical, and housing wealth minus debt, estimated from 22 components by the ELSA data depositors [@torres2016wealth; @demakakos2016wealth]. A detailed description is available at the UK Data Service documentation. Wealth quintiles (`totwq5_bu_s`) were binarised into the lowest two quintiles versus quintiles 3–5 (`wealthQ_bin`). Time-varying; sourced from wave-specific financial derived files (not the harmonised dataset).
+Total net non-pension household wealth (`nettotw_bu_s`) is a summary measure of financial, physical, and housing wealth minus debt, estimated from 22 components by the ELSA data depositors [@torres2016wealth; @demakakos2016wealth]. A detailed description is available at the UK Data Service documentation. Wealth quintiles (`totwq5_bu_s`) were binarised into the worst-off quintile (Q1) versus all others (Q2–Q5; `wealthQ_bin`). Time-varying; sourced from wave-specific financial derived files (not the harmonised dataset).
 
-#### Multiple long-term conditions (`MLTC`)
+### Multiple long-term conditions (`MLTC`)
 
-Count of doctor-diagnosed conditions categorised as 0, 1, 2, or 3 or more. Conditions included following [@poole2020combined]:
+Count of doctor-diagnosed conditions categorised as 0, 1, 2, or 3 or more. Conditions follow the definition in [@poole2020combined], with the addition of mental health disorders from [@simpson2023eliciting]:
 
 -   CHD (angina; myocardial infarction excluded by design — represented by angina only)
 -   Stroke
@@ -165,34 +152,22 @@ Count of doctor-diagnosed conditions categorised as 0, 1, 2, or 3 or more. Condi
 -   Pulmonary disease (chronic bronchitis, emphysema)
 -   Arthritis (osteoarthritis, rheumatoid, unspecified)
 -   Cancer
+-   Mental health disorders (`rXpsyche`: doctor-diagnosed depression, anxiety, psychosis)
 
-Extended to include [@simpson2023eliciting]:
+Note: mental health disorders are included as a countable MLTC condition; depression is additionally included as a continuous latent score in the DE model, where it acts as a covariate rather than an outcome indicator.
 
--   Parkinson's disease
--   Hypertension
--   Asthma
--   Arrhythmia
--   Mental health disorders (depression, anxiety, psychosis)
--   Alzheimer's disease
--   Dementia
+## Additional confounders — DE model only
 
-Note: mental health disorders appear as a countable MLTC condition following [@simpson2023eliciting]; depression is additionally included as a continuous latent score in the DE model, where it acts as a covariate rather than an outcome indicator.
+### Depression (`rXcesd` / `cesd_lat_shifted`)
 
-#### Depression (`rXcesd` / `cesd_lat_shifted`)
+Depression was assessed using the eight-item CES-D scale. `RwCESD` is the sum of `RwDEPRES`, `RwEFFORT`, `RwSLEEPR`, `RwFLONE`, `RwFSAD`, `RwGOING`, `(1 − RwWHAPPY)`, and `(1 − RwENLIFE)`; higher scores indicate more negative affect. A latent factor score was derived from a confirmatory factor analysis (metric invariance model) and shifted to be non-negative prior to imputation (`cesd_lat_shifted`) [@karim2015validation]. Time-varying.
 
-Depression was assessed using the seven-item CES-D scale. `RwCESD` is the sum of `RwDEPRES`, `RwEFFORT`, `RwSLEEPR`, `RwFLONE`, `RwFSAD`, `RwGOING`, `(1 − RwWHAPPY)`, and `(1 − RwENLIFE)`; higher scores indicate more negative affect. A latent factor score was derived from a confirmatory factor analysis (metric invariance model) and shifted to be non-negative prior to imputation (`cesd_lat_shifted`) [@karim2015validation]. Time-varying.
+### Loneliness (`rXlnlys` / `loneliness_group`)
 
-#### Loneliness
-
-"UCLA 4 items"
-
-RwLNLYS indicates the mean of the four different loneliness questions 
-(RwCOMPLAC, RwLEFTOUT, RwISOLATE and RwINTUNE) and can be used as a summary 
-score. RwLNLYS is coded to make sure that higher scores indicate that the 
-respondent feels more lonely.
+Loneliness was assessed as the mean of four UCLA loneliness items (`RwCOMPLAC`, `RwLEFTOUT`, `RwISOLATE`, `RwINTUNE`; composite: `RwLNLYS`). Higher scores indicate greater loneliness. The psychometric properties of short UCLA loneliness scales have been validated against the full 20-item version, showing adequate dimensional reliability and convergent validity [@gosling2024measuring]. However, @gosling2024measuring also demonstrate that dichotomising short UCLA scales produces variable prevalence estimates and sensitivity/specificity below acceptable thresholds depending on the cut-off chosen. To mitigate this, we binarised the score using PAM clustering (medoids 1.00 and 1.75), a data-driven approach that identifies the natural break in the distribution rather than imposing an arbitrary threshold. The binarisation was applied to the imputed datasets in `suppl_pt2.1_DERIVED VARIABLES_VH.Rmd`. Time-varying.
 
 
-## Confounder selection
+## Confounder Selection and DAGs
 
 Following the disjunctive cause criterion [@vanderweele2011criterion], as formalised by @pearl2009causality, variables were included as confounders if they have plausible directed paths to both the partnership quality exposure and the pain-state outcome. Full causal DAGs and dagitty-derived adjustment sets are presented in Figures 2 and 3 of the supplementary material (see `draw_dags.R`).
 
@@ -202,16 +177,11 @@ The LTA model specification and parametric formulas (initial state and transitio
 
 We present the baseline levels of all measures; where relevant we compare them with Wave 1 data, which was directly sampled from the 2001 Health Survey for England (HSE) and serves as a benchmark for population representativeness.
 
-## Table 1
+## Demographic factors
 
-### Demographic Factors
+### Age and sex
 
-#### Age and Gender
-
-Men are less likely to report or experience chronic pain than women
-[@greenspan2007studying].
-
-(look at mills 2019 for approapriate summary here)
+Age and sex are consistently associated with chronic pain prevalence and characteristics. Advancing age is independently associated with greater multimorbidity, which in turn predicts chronic pain onset and persistence. Pain characteristics including duration, severity, and number of sites show age-dependent patterns, particularly in women. Sex differences in chronic pain are well established: women report higher pain prevalence, higher self-reported intensity, and higher pain-related disability than men, and are more likely to seek treatment [@mills2019chronic].
 
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 cut_age_brackets <- function(ages) {
@@ -292,7 +262,7 @@ ggplot(plot_data) +
     panel.spacing.x = unit(0, "pt")
   )+
   labs(
-    title = "Population Pyramid: Age braket Distribution by Sex: Wave 1 (HSE) vs Wave 4",
+    title = "Age bracket distribution by sex: Wave 1 (HSE) vs Wave 4",
     fill = "Sex:Wave",
     caption = paste0("Wave 1 (HSE) n =",nrow(H_elsa_w1),
                      "; Wave 4 n = ",nrow(H_elsa_w4_6))
@@ -301,42 +271,22 @@ ggplot(plot_data) +
 
 ```
 
-#### Net total Wealth
+## Socioeconomic factors
 
-var: r1nettotw_bu_s, r1totwq5_bu_s
+### Net total wealth
 
-the prevalence of chronic pain is inversely related to socio-economic
-factors [@mills2019chronic] (many good refs of this in mills).
-
-Those who are socio-economically deprived are not only more likely to
+The prevalence of chronic pain is inversely related to socioeconomic
+factors [@mills2019chronic]. Those who are socio-economically deprived are not only more likely to
 experience chronic pain than people from more affluent areas, but they
 are also more likely to experience more severe pain and a greater level
 of pain-related disability [@mills2019chronic]
 
-r1nettotw_bu_s is "Net total wealth" (benefit unit level): expressed as
-the sum of savings, investments, physical wealth and housing wealth
-after financial debt and mortgage debt has been subtracted. The
-distrubution of wealth is severely skewed and a log transformation of
-the wealth magnitude axis allows for better visual examination of the
-distribution (next two figures).
-
-In general there is a clear wealth gradient in disability among older English adults with the 
+Net total wealth (`nettotw_bu_s`) is the sum of savings, investments, physical and housing wealth minus financial and mortgage debt. The distribution is severely right-skewed; the log scale is used for visual clarity. In general there is a clear wealth gradient in disability among older English adults with the 
 poorest men with disability more likely to live without a partner and have no weekly contact with children, 
 family or friends compared to the wealthiest. Among women with disability, the poorest are 
 more likely to report loneliness and have no partner while the wealthiest and the intermediate 
 groups were more likely to be living with a partner [@torres2016wealth].
 
-It is plausible that individuals living with a partner in the same household combine financial 
-and other resources, resulting in greater overall household wealth compared to those 
-living alone. However, disentangling this causal relationship is challenging due to 
-potential bidirectional influences and confounding factors—for example, wealth may 
-impact marital stability, while partnership status influences wealth accumulation. 
-To address these complexities, we will examine this potential mediation pathway
-using the decoded latent states in a sensitivity analysis, estimating the indirect 
-effect of partnership on health outcomes through wealth, while accounting for possible
-confounding. This approach allows us to better understand how socio-economic resources 
-linked to partnership status contribute to variations in chronic pain-related latent 
-health states.
 
 ```{r echo=FALSE, warning=F,message=FALSE,error=FALSE}
 Sys.setlocale("LC_ALL", "en_GB.UTF-8")   # adjust to your region
@@ -363,10 +313,7 @@ plot_Wealth_w1<-ggplot(Wealth_data, aes(x = r1nettotw_bu_s)) +
 plot_Wealth_w1
 ```
 
-the representation by quintile allows for a more general perspective on
-this same information
-
-HSE and WAVE 4 comparison
+The distribution by quintile allows comparison of Wave 1 (HSE) and Wave 4 wealth levels.
 
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 
@@ -437,11 +384,7 @@ ggplot(plot_data, aes(x = as.factor(totwq5_bu_s), y = nettotw_bu_s , fill = wave
 
 ```
 
-#### Education
-
-var: raeduc_e. This variable is defined using the RAND HRS categorical
-summary of education: 1.Less than high school, 3.high school graduate,
-4.some college, and 5.college and above.
+### Education
 
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 
@@ -526,11 +469,7 @@ edu_plot<-ggplot(education_data, aes(x = category, y = percentage, fill = wave))
 edu_plot
 ```
 
-#### Occupational status
-
-var: rXwork People who are not in employment because of ill health or
-disability are more likely to have chronic pain than those who are
-employed [@mills2019chronic]
+### Occupational status
 
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 work_plot<-binary_var_chart(
@@ -549,11 +488,9 @@ work_plot
 
 ```
 
-### Lifestyle and Behaviour factors
+## Additional variables (smoking, alcohol)
 
-#### Smoking
-
-rXsmoken : whether ever having smoked
+### Smoking
 
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 smoking_plot <- binary_var_chart(
@@ -572,12 +509,9 @@ smoking_plot
 
 ```
 
-People with chronic pain are more likely to smoke than those with no
-pain
+The prevalence of smoking in patients with chronic pain has not declined when compared to the general population; higher prevalence has been consistently observed across commonly occurring pain diagnoses including fibromyalgia, back pain, and headache [@orhurhu2015prevalence].
 
-#### Alcohol
-
-self-completion questionnaire (missing values 1090 or 12%)
+### Alcohol
 
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 
@@ -608,9 +542,9 @@ drinking_plot
 
 ```
 
-### Main Predictor
+## Exposure: partnership and spousal support
 
-##### Having a partner or spouse
+### Partnership status
 
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 Partnership_plot <- binary_var_chart(
@@ -629,9 +563,7 @@ Partnership_plot
 
 ```
 
-##### Partner Support status
-
-.. of those who have a partner or spouse
+### Spousal support score
 
 ```{r ssupport-summary-table, echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
 # Reshape wide → long: one row per person-wave, partnered observations only
@@ -703,11 +635,9 @@ ggplot(ssup_long, aes(x = ssupport6,
   )
 ```
 
-### Clinical Factors
+## Clinical and health factors
 
-#### Sleep
-
-**sleep** Whether sleep was restless *rXsleepr*
+### Sleep
 
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 sleep_plot <- binary_var_chart(
@@ -726,11 +656,9 @@ sleep_plot
 
 ```
 
-#### BMI
+### BMI
 
-*moderate Obesity* defined as BMI \>=30 [@andreyeva2007obesity]
-
-missingness happens whenever the nurse visit did not take place.
+*Moderate obesity* defined as BMI >= 30 [@andreyeva2007obesity]. Missing values arise when a nurse visit did not take place.
 
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 
@@ -761,7 +689,7 @@ BMI_plot <-ggplot(H_elsa_w4_6, aes(x = r4mbmi ,
 BMI_plot
 ```
 
-#### Physical Activity
+### Physical activity
 
 Participants were asked to self-report the frequency of their
 participation in sports or activities that were vigorous, moderately
@@ -824,22 +752,9 @@ plot_PA_data<-ggplot(PA_data, aes(x = category, y = percentage, fill = factor(ra
 plot_PA_data
 ```
 
-#### Depression 7 item
+### Depression (CES-D 8)
 
-Depression is strongly linked with chronic pain [@mills2019chronic]
-
-The CES-D-8 is a valid and reliable measure of depressive symptoms in
-community-dwelling older people, [@briggs2018validation] and a score of
-\>=3 is generally accepted as threshold for
-caseness [@turvey1999revised; @white2016duration].
-
-Counting restless sleep in a cumulative sum score approach may thus
-inflate total scores. [@schlechter2023eight]. This is particularly
-problematic when sleep disturbance is also being examined as a separate
-variable in our analysis.
-
-Since we are analyzing sleep problems as a distinct outcome variable, we
-will use the sum score based on 7 items.
+Depression is strongly linked with chronic pain [@mills2019chronic]. The CES-D-8 is a valid and reliable measure of depressive symptoms in community-dwelling older people [@briggs2018validation]; a score of >= 3 is generally accepted as the threshold for caseness [@turvey1999revised; @white2016duration].
 
 ```{r}
 
@@ -858,27 +773,22 @@ CESD_plot <-ggplot(H_elsa_w4_6, aes(x = r4cesd ,
     geom_vline(xintercept = Threshold_CESD, linetype="dashed", color = "red")+
     theme_minimal() +
     labs(
-      title = "Distribution of CES-D 7 scores by gender at baseline (w4)",
-      subtitle = paste0("Blue and red lines indicate median CES-D 7 = ", round(MedianCESD,2)," and 3 as the clinical threshold \nfor depressive symptomatology (on the 8 item version)"),
+      title = "Distribution of CES-D 8 scores by sex at baseline (Wave 4)",
+      subtitle = paste0("Dotted line = median CES-D 8 = ", round(MedianCESD,2),"; dashed line = caseness threshold (score >= 3)"),
       x = "CESD",
       y = "Frequency",
       fill = "Gender",
-      caption = paste0("We removed the sleep item to compile a seven item scale. Wave 4 n = ", nrow(H_elsa_w4_6),
-                        "; missing values n = ", NA_count, 
-                       " (",NA_perc,"%)"))+
+      caption = paste0("Wave 4 n = ", nrow(H_elsa_w4_6),
+                        "; missing values n = ", NA_count,
+                       " (", NA_perc, "%)"))+
     theme_minimal() 
 
 CESD_plot
 ```
 
-#### MLTC
+### MLTC
 
-MLTC: count of doctor-diagnosed illnesses [@poole2020combined]): \*
-rXangine \| rXhrtatte: CHD (angina \| myocardial infarction) \*
-rXstroke: stroke \* rXdiabe: diabetes/high blood glucose \* rXlunge:
-pulmonary disease (chronic bronchitis, emphysema) \* rXarthre: -
-arthritis (osteoarthritis \| rheumatoid \| arthritis type not specified)
-\* rXcancre: cancer
+Count of doctor-diagnosed conditions. Full item list in Section 2.3.
 
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 
@@ -922,31 +832,7 @@ MLTC_plot <-ggplot(H_elsa_w4_6, aes(x = r4MLTC ,
 MLTC_plot
 ```
 
-##### MLTC in wave 4 and wave 1 (HSE)
-
-Given the multiple retression formula:
-
-$$ y = \beta_0 + \beta_1MLTC + \beta_2SpSupp+ [...]+ \beta_nX_n + \epsilon $$
-where "MLTC" is the count of long term conditions, and "SpSupp" is the
-experience of partner support. Considering that SpSupp is the main
-predictor in this analysis and that SpSupp may affect the count of MLTC
-overtime, adjusting for MLTC could mask some of the effect of SpSupp
-that goes through MLTC (*Thanks Sam for pointing this out*):
-
--   $\beta_2$ only captures the direct effect of SpSupp
--   The indirect effect of SpSupp through MLTC gets attributed to
-    $\beta_1$
--   The total effect of SpSupp is therefore underestimated in this case
-
-Here we can take MLTC out of the equation:
-
-$$ y = \gamma_0 + \gamma_1SpSupp+ ...+ \gamma_nX_n + \epsilon $$
-
-Here $\gamma_1$ will capture the total effect of partner support. This
-approach measures the association $gamma_1$ as a total effect of spouse
-support after adjusting for relevant confounders. It is satisfactory in
-this model considerting that we are not interested in decomposing the
-pathways of SpSupp.
+#### MLTC in Wave 4 and Wave 1 (HSE)
 
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 
@@ -984,7 +870,7 @@ ggplot(plot_data, aes(x = MLTC, y = percentage, fill = wave)) +  # Changed y to 
     size = 3
   ) +
   labs(
-    title = "Multi-Morbidity Conditions [@poole2020combined]: Wave 1 (HSE) vs Wave 4",
+    title = "Multiple long-term conditions (MLTC): Wave 1 (HSE) vs Wave 4",
     x = "Number of Conditions",
     y = "Percentage of Respondents",  # Changed y-axis label
     fill = "Wave",
@@ -1009,7 +895,7 @@ plotMLTCxAgexGender
 
 ```
 
-#### N of pain locations
+### Number of pain locations
 
 -   hepawba *Whether feel pain in back*
 -   hepawhi *Whether feel pain in hips*
@@ -1055,18 +941,11 @@ ggplot(PainlocN_data, aes(x = pain_locN, y = percentage, fill = gender)) +  # Ch
     theme_minimal()
 ```
 
-#### Derived Variables:
-
-##### Net Tot Wealth bin
-
-A binary variable which shows whether respondent is in the most deprived
-quintile
-
-rXwealthBIN
-
-```{r}
-
-H_elsa_w4_6 <- H_elsa_w4_6 %>% 
+```{r echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
+# Local recoding for descriptive display only — not pipeline derivations.
+# r4wealthBIN: binary from raw pre-imputation quintile (r4totwq5_bu_s) for Table 1.
+# r4mbmiBIN: BMI category for descriptive plot. Neither variable is saved.
+H_elsa_w4_6 <- H_elsa_w4_6 %>%
   mutate(
     r4wealthBIN = case_when(
       r4totwq5_bu_s == 1 ~ "most deprived Q",
@@ -1077,24 +956,19 @@ H_elsa_w4_6 <- H_elsa_w4_6 %>%
       r5totwq5_bu_s == 1 ~ "most deprived Q",
       r5totwq5_bu_s >  1 ~ "2:5 least deprived Q",
       TRUE ~ NA_character_
-    )%>% as.factor(),
+    ) %>% as.factor(),
     r6wealthBIN = case_when(
       r6totwq5_bu_s == 1 ~ "most deprived Q",
       r6totwq5_bu_s >  1 ~ "2:5 least deprived Q",
       TRUE ~ NA_character_
-    )%>% as.factor()
+    ) %>% as.factor()
   )
-
 
 table(H_elsa_w4_6$r4wealthBIN)
 ```
 
-##### BMI bin
-
-```{r}
-
-###### CREATE BINARY VARIABLE FOR BMI
-H_elsa_w4_6<-H_elsa_w4_6 %>% mutate(
+```{r echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
+H_elsa_w4_6 <- H_elsa_w4_6 %>% mutate(
   r4mbmiBIN = case_when(
     r4mbmi >= 30 ~ "moderate obesity",
     r4mbmi < 30  ~ "sub threshold",
@@ -1108,17 +982,16 @@ plot_data <- H_elsa_w4_6 %>%
     mutate(
       percentage = count / sum(count) * 100,
       category = factor(
-        r4mbmiBIN, 
+        r4mbmiBIN,
         levels = c("moderate obesity", "sub threshold", "No nurse data")
       )
     )
-
 
 missing_nurse_count <- sum(H_elsa_w4_6$r4mbmiBIN == "No nurse data", na.rm = TRUE)
 
 BMI_binplot <- ggplot(plot_data, aes(x = category, y = percentage, fill = factor(ragender, labels = c("male", "female")))) +
   geom_bar(
-    stat = "identity", 
+    stat = "identity",
     position = position_dodge(width = 0.9),
     alpha = 0.7
   ) +
@@ -1132,23 +1005,21 @@ BMI_binplot <- ggplot(plot_data, aes(x = category, y = percentage, fill = factor
     size = 3
   ) +
   labs(
-    title = "BMI Categories by Gender at baseline (WAVE 4)",
+    title = "BMI categories by sex at baseline (Wave 4)",
     x = "BMI Category",
     y = "Percentage of Respondents",
-    fill = "Gender",
-    caption = paste0("Participants missing nurse data n= ",missing_nurse_count," of N = ", nrow(H_elsa_w4_6))
+    fill = "Sex",
+    caption = paste0("Participants missing nurse data n= ", missing_nurse_count, " of N = ", nrow(H_elsa_w4_6))
   ) +
   theme_minimal() +
   scale_y_continuous(labels = function(x) paste0(x, "%"))
 
 BMI_binplot
-
 ```
 
-### Chronic widespread pain state
+### Validity of pain location count as a subdivision of chronic pain
 
-we check these bivariate association for the categorical variable
-(r4pain_locN_cat as factor) indicating "widespread pain".
+The use of pain location count (`r4pain_locN_cat`) to subdivide chronic pain into localised and multisite categories was validated by examining its association with the chronic pain indicator (`r4painchr`). A high polychoric correlation between the two would confirm that the location-based subdivision captures a meaningful gradation within the chronic pain group rather than introducing noise.
 
 ```{r}
 painLoc_data <- H_elsa_w4_6 %>%
@@ -1168,8 +1039,7 @@ str(painLoc_data)
 
 ```
 
-In this case we have two categorical variables, polychoric correlations
-will be applied.
+Both variables are ordinal; polychoric correlation is therefore used.
 
 ```{r}
 
@@ -1192,15 +1062,9 @@ table(painLoc_data$r4pain_locN_cat,painLoc_data$r4painchr)
 
 ```
 
-The bivariate association fails the test for bivariate normality. This
-means that the correlation detected is a linear approximation of the
-underlying relationship between the two variables. Polychoric correlation
-is robust to moderate normality violations; this result is exploratory
-and not used in primary LTA modelling.
+The polychoric correlation is 0.963 (p < 0.001), indicating near-perfect ordinal agreement between location count category and chronic pain status. The contingency table confirms complete separation between pain-free respondents and those with any chronic pain, with location count differentiating within the chronic pain group. Polychoric correlation is robust to moderate violations of bivariate normality.
 
-### Composite Chronic pain state
-
-0 NO PAIN 1 ACUTE PAIN 3 CHRONIC 4 CHRONIC WIDESPREAD
+### Distribution of `painchr_ext`
 
 ```{r}
 NA_count_pain<-is.na(H_elsa_w4_6$r4painchr_ext) %>% sum    
@@ -1219,8 +1083,8 @@ ggplot(H_elsa_w4_6, aes(x = r4painchr_ext,
             vjust = -0.5) +
   theme_minimal() +
   labs(
-    title = "Categorical chronic pain state with pain spread category ",
-    subtitle = "Categories based on the presence of multiple (3+) pain locations at once",
+    title = "Distribution of painchr_ext by sex at baseline (Wave 4)",
+    subtitle = "0 = no pain; 1 = acute; 2 = localised chronic (≤2 locations); 3 = multisite chronic (≥3 locations)",
     x = "Pain state Category",
     y = "Frequency",
     fill = "Gender",
@@ -1234,18 +1098,18 @@ ggplot(H_elsa_w4_6, aes(x = r4painchr_ext,
 
 ```
 
-## Table 1
+# Sample Characteristics — Table 1
 
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
 library(table1)
 
 # r4lvimp, r4pain_locN_cat, r4painchr_ext: pass-through from H_elsa_w4_6.rds
 # derived in suppl_pt1_Data_prep.Rmd:
-#   r4lvimp          — IRT pain impact score (pt1 § "IMPORT impact IRT data")
+#   r4lvimp          — IRT pain impact score (pt1 Section "IMPORT impact IRT data")
 #   r4lvimp
 H_elsa_w4_6$r4lvimp_shifted<-H_elsa_w4_6$r4lvimp - min(H_elsa_w4_6$r4lvimp)
-#   r4pain_locN_cat  — pain location count category (pt1 § "N of Pain Locations")
-#   r4painchr_ext    — extended 4-category classifier (pt1 § "Composite Chronic pain state + location")
+#   r4pain_locN_cat  — pain location count category (pt1 Section "N of Pain Locations")
+#   r4painchr_ext    — extended 4-category classifier (pt1 Section "Composite Chronic pain state + location")
 var_Ys<-c("r4painchr","r4lvimp_shifted")
 
 var_Xs<-c("r4ssupport6","r4partner","r4pain_locN_cat","r4pain_locN")
@@ -1290,7 +1154,7 @@ kable(as.data.frame(table1_2))
 
 ```
 
-## Table 2: Wave 4 analytic sample vs Wave 1 (HSE) reference
+# Wave 4 vs Wave 1 (HSE) comparison — Table 2
 
 Wave 1 of ELSA was drawn directly from the Health Survey for England (HSE) 2001 and is therefore approximately representative of the English population aged 50+. Wave 4 is our analytic sample (participants completing all three waves). Greater similarity between the two samples supports the external validity of our findings. Chronic pain prevalence is not compared here as the HSE did not include an equivalent measure.
 
