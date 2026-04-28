@@ -179,7 +179,16 @@ create_chrpain_variable <- function(data, wave) {
 
 
 ```{r}
-## Create chrpain variables for waves 2 to 9
+## Create chrpain variables for waves 1 to 9
+# Wave 1 special case: r1chrpain is initialised to 0 for all valid respondents
+# (no previous wave exists, so the two-consecutive-wave criterion cannot fire).
+# The back-fill at wave 2 then overwrites r1chrpain=1 for anyone confirmed
+# chronic at wave 2, representing onset at wave 1. So after the full loop,
+# wave 1 carries a meaningful classification.
+#
+# NOTE: rXchrpain is created here but is NOT used as a filter in the IRT
+# multi-group models below. The grouping variable is wave number. The chrpain
+# variables are available in H_elsa_all for any downstream sub-analysis.
 
 waves <- 1:9
 for (wave in waves) {
@@ -197,6 +206,12 @@ for (wave in waves) {
 
 ```{r}
 
+# Wave 1 is excluded: r1chrpain cannot be established from two consecutive waves
+# (no wave 0 exists), so including wave 1 as an IRT group would add a group with
+# a systematically zero/uninformative pain classification.
+# Wave 9 is excluded: this calibration was designed for the ELSA-partners analysis
+# (waves 4–6); waves 2–8 provide a conservative wider calibration margin.
+# For analyses extending to wave 9+, re-run including those waves.
 for (wave in 2:8) {
   filtered_data <- dplyr::filter(H_elsa_all, get(paste0("inw", wave)) == 1)
 #  filtered_data <- dplyr::filter(H_elsa_all, inw1 == 1)
@@ -557,7 +572,11 @@ for (wave in 2:8) {
   }
 }
 
-mfit_df$refreshed<-c(0,1,1,0,1,0,0)
+# Refreshment samples at waves 3, 4, 6, 7, 9 per ELSA design.
+# Vector length = 7, one per wave 2–8.
+# W2=0, W3=1, W4=1, W5=0, W6=1, W7=1, W8=0
+# (Note: original had W7=0, corrected here — wave 7 did have a refreshment.)
+mfit_df$refreshed <- c(0, 1, 1, 0, 1, 1, 0)
 
 # Sort the dataframe by Wave
 mfit_df <- mfit_df[order(mfit_df$Wave), ]
@@ -694,6 +713,11 @@ refmodel <- full_metric_model
 
 
 
+# IMPORTANT — numbers in model specs refer to ITEMS, not waves.
+# F=1-9 means the factor loads on items 1–9 (the 9 IRT items).
+# CONSTRAINB = (k-9, a1) constrains the discrimination parameter of items k–9
+# to be equal across ALL wave-groups simultaneously.
+# These specs do NOT need to change when the number of waves changes.
 spec_a =c(
         "F=1-9 \nCONSTRAINB = (2-9, a1)",
         "F=1-9 \nCONSTRAINB = (1, a1),  (3-9, a1)",
