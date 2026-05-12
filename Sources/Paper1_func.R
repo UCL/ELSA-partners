@@ -1868,9 +1868,12 @@ Wealth -> "Partnership Status"
 
 check_ll_consistency <- function(label, n_imp, path) {
   cat(sprintf("\n--- Cross-imputation LL check: %s ---\n", label))
-  lls <- sapply(seq_len(n_imp), function(i) {
-    readRDS(paste0(path, "raw_results_", label, "_imp", i, ".rds"))$best_model$lk
-  })
+  lls <- numeric(n_imp)
+  for (i in seq_len(n_imp)) {
+    r       <- readRDS(paste0(path, "raw_results_", label, "_imp", i, ".rds"))
+    lls[i]  <- r$best_model$lk
+    rm(r); gc()
+  }
   cat(sprintf("LL range: %.4f to %.4f\n", min(lls), max(lls)))
   cat(sprintf("LL median: %.4f  |  SD: %.4f\n", median(lls), sd(lls)))
   cat(sprintf("Max spread: %.2f LL units\n", max(lls) - min(lls)))
@@ -2156,7 +2159,7 @@ pool_summaries <- function(label, n_imp, path, min_EPV = 20) {
 #       with t_pool = -2.00 looks significant under z (1.96 < 2.00), but if
 #       nu_BR = 21 the correct critical value is t(21, 0.025) = 2.08, so the
 #       result is actually non-significant (p_pool ~ 0.058).  This happens when
-#       B is comparable to U_bar for that parameter, meaning the 22 imputations
+#       B is comparable to U_bar for that parameter, meaning the 60 imputations
 #       disagree non-trivially about its magnitude — the extra uncertainty is
 #       captured by the wider t distribution but missed by z.
 #
