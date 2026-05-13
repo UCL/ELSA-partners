@@ -211,7 +211,7 @@ ImpactBootstability_results <- clusterboot(nonzero_data_ref,
                           B = n_boot,          # number of bootstrap samples
                           seed = 200720)     # for reproducibility
 
-saveRDS(ImpactBootstability_results,paste0(paper1_MODELS_rds_path,"Impact_2_clust_Stability_boot2000.rds"))
+saveRDS(ImpactBootstability_results,paste0(paper1_MODELS_rds_path,"Impact_clustStability_boot2000.rds"))
 
 ```
 
@@ -224,6 +224,7 @@ ImpactBootstability_results<-readRDS(paste0(paper1_MODELS_rds_path,"Impact_clust
 cat("Bootstrap mean Jaccard similarity (cluster stability) Hennig, C. (2007)")
 cat(sprintf("  Cluster 1 Stability: %.4f\n", ImpactBootstability_results$bootmean[1]))
 cat(sprintf("  Cluster 2 Stability: %.4f\n", ImpactBootstability_results$bootmean[2]))
+cat(sprintf("  Cluster 3 Stability: %.4f\n", ImpactBootstability_results$bootmean[3]))
 #ImpactBootstability_results$result
 ```
 
@@ -324,8 +325,8 @@ cutpoints <- quantile(data_imp1$nettotw_bu_s_original,
                      na.rm = TRUE)
 print(cutpoints)
 
-quintile_breaks_log <- quantile(data_imp1$nettotw_bu_s_log, # pooled quintile repartition
-                                  probs = seq(0, 1, by = 0.2), na.rm = TRUE)
+quintile_breaks_log <- quantile(data_imp1$nettotw_bu_s_log, # pooled across waves 4-6: more stable
+                                  probs = seq(0, 1, by = 0.2), na.rm = TRUE) 
 
 
 
@@ -347,129 +348,6 @@ updated_mids <- add_wealth_quintiles_to_mice(updated_mids,
 
 the total score here is log1p() transformed to improve its skewed distribution. The total score is monotonic with greater scores meaning more strain the supportiveness of the relationship
 
-### Lonelyness bin
-
-```{r}
-data_imp1 <- mice::complete(updated_mids, 1)
-data_w4<-data_imp1%>% filter(wave == 4)
-data_w5<-data_imp1%>% filter(wave == 5)
-data_w6<-data_imp1%>% filter(wave == 6)
-
-
-cluster_wave <- function(data, wave_num, n_clusters){
- # PAM clustering
-  pam_result <- pam(data$lnlys, k = n_clusters, metric = "manhattan")
-  
-  # Medoids
-  cat("\nCluster medoids:\n")
-  print(pam_result$medoids)
-  
-  # Cluster sizes
-  cat("\nCluster sizes:\n")
-  print(table(pam_result$clustering))
-  
-  # Silhouette analysis
-  sil <- silhouette(pam_result$clustering, dist(data$lnlys, method = "manhattan"))
-  
-  # Plot silhouette
-  plot(sil, main = paste("Silhouette Plot - Wave", wave_num), 
-       col = 1:n_clusters, border = NA)
-  
-  # Average silhouette width
-  cat("\nAverage silhouette width:", mean(sil[, 3]), "\n")
-  
-  # Return results
-  return(list(
-    wave = wave_num,
-    pam_result = pam_result,
-    silhouette = sil,
-    medoids = pam_result$medoids,
-    cluster_sizes = table(pam_result$clustering),
-    avg_sil_width = mean(sil[, 3])
-  ))
-}
-
-# n_clusters = 2: frozen value confirmed by PAM bootstrap stored in
-# Impact_clustStability_boot2000.rds (eval=FALSE chunk, lines 69–129)
-results_w4 <- cluster_wave(data_w4, n_clusters = 2, wave_num = 4)
-results_w5 <- cluster_wave(data_w5, n_clusters = 2, wave_num = 5)
-results_w6 <- cluster_wave(data_w6, n_clusters = 2, wave_num = 6)
-
-comparison <- data.frame(
-  Wave = c(4, 5, 6),
-  Medoid_1 = c(results_w4$medoids[1], results_w5$medoids[1], results_w6$medoids[1]),
-  Medoid_2 = c(results_w4$medoids[2], results_w5$medoids[2], results_w6$medoids[2]),
-  Avg_Silhouette = c(results_w4$avg_sil_width, results_w5$avg_sil_width, results_w6$avg_sil_width),
-  Cluster1_Size = c(results_w4$cluster_sizes[1], results_w5$cluster_sizes[1], results_w6$cluster_sizes[1]),
-  Cluster2_Size = c(results_w4$cluster_sizes[2], results_w5$cluster_sizes[2], results_w6$cluster_sizes[2])
-)
-
-### thresholds are stable, 
-
-apply_loneliness_clustering <- function(mids_object, ref_medoids = c(1.00, 1.75)) {
-  
-  # Extract long format data
-  long_data <- mice::complete(mids_object, action = "long", include = TRUE)
-  
-  # Apply clustering
-  processed_long <- long_data %>%
-    mutate(
-      # Assign to nearest medoid
-      lnlys_cat = sapply(lnlys, function(x) {
-        if(is.na(x)) return(NA_integer_)
-        which.min(abs(x - ref_medoids))
-      }),
-      
-      # Create factor label
-      loneliness_group = factor(lnlys_cat, 
-                               levels = 1:2, 
-                               labels = c("Low", "High"))
-    )
-  
-  # Convert back to mids object
-  new_mids <- as.mids(processed_long, .imp = ".imp", .id = ".id")
-  
-  return(new_mids)
-}
-
-# Apply to your mids object
-# ref_medoids c(1.00, 1.75) are hardcoded as the reference clustering centres.
-# Validated as stable across all three waves via PAM (cluster_wave()):
-#   Wave 4: medoids = 1.00, 1.75 | sizes = 3782, 4232 | avg silhouette = 0.604
-#   Wave 5: medoids = 1.00, 1.75 | sizes = 4224, 3790 | avg silhouette = 0.613
-#   Wave 6: medoids = 1.00, 1.75 | sizes = 3823, 4192 | avg silhouette = 0.615
-# Silhouette widths >0.60 indicate well-separated clusters. Wave 5 label order
-# is reversed in raw output (1.75 first) but medoid values are identical.
-# Wave 4 medoids are used as the cross-wave reference (most common convention).
-updated_mids <- apply_loneliness_clustering(updated_mids, ref_medoids = c(1.00, 1.75))
-
-
-# Verify the clustering worked across imputations
-#check_clustering <- mice::complete(updated_mids_with_clusters, action = "long", include = F)
-
-# Check distribution by wave and imputation
-# check_clustering %>%
-#   group_by(.imp, wave, loneliness_group) %>%
-#   summarise(
-#     n = n(),
-#     mean_lnlys = mean(lnlys, na.rm = TRUE),
-#     max_lnlys = max(lnlys, na.rm = TRUE),
-#     min_lnlys = min(lnlys, na.rm = TRUE),
-#     .groups = "drop"
-#   ) %>%
-#   print(n = 30)
-
-# Verify no label switching across imputations
-# check_clustering %>%
-#   group_by(.imp, loneliness_group) %>%
-#   summarise(
-#     mean_lnlys = mean(lnlys, na.rm = TRUE),
-#     .groups = "drop"
-#   ) %>%
-#   arrange(loneliness_group,mean_lnlys,.imp ) %>% print(n = 100)
-
-
-```
 
 ```{r eval = T, echo=FALSE }
 df_plot<-imputed.df %>% filter(wave == 4 & !is.na(ssupport6_log1p))
@@ -495,13 +373,12 @@ We create two baseline Variables(Wave 4):
 
 We Transform categorical and ordinal variables into binary variables to ease LTA model complexity and prevent instability or separation. For the same reason we set the reference category (0) so that the most endorsed binary category is the refence category.
 
-* MLTC_BIN: Dichotomizes long-term conditions (≤2 vs >2)
 * Sex_BIN: Converts gender coding to "Female"/"Male"
 * partner: having a partner is coded as zero 
 * painchr_ext: Recodes pain scale to start from 0 (required for LME/ST modeling)
 
 
-* lnlys3_bin: is not parametrised for its poor sensitivity and specificity when parametrised  using the common threshold [@gosling2024measuring]
+* lnlys: UCLA-4 loneliness mean retained as continuous; threshold binarisation not used given poor sensitivity/specificity of the common cut-point [@gosling2024measuring]
 
 
 

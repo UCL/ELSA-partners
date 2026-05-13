@@ -26,7 +26,7 @@ library(GGally)
 library(lme4)
 library(broom.mixed)
 
-source("~/ELSA-partners/Sources/Paper1_func.R")
+source("Sources/Paper1_func.R")
 
 paper1_rds_path<-"~/private_WP5/WP5_data/rds/"
 
@@ -238,7 +238,7 @@ Missingdata_wide<-Missingdata_wide %>% mutate(
                                 ragender = case_when(
                                           ragender == 1 ~ 0, # male
                                           ragender == 2 ~ 1, # female
-                                          TRUE ~ NA_real_
+                                          TRUE ~ NA_real_   # unreachable: only codes 1/2 exist in ELSA
                                           )#,
 #                                raracem = case_when(
 #                                          raracem == 1 ~ 1, # white
@@ -300,12 +300,14 @@ for(var in minimal_missing) {
 Missingdata_wide <- Missingdata_wide %>%
   mutate(
     # Fill r4smoken missing values with r6smoken
+    # Note: if r6smoken is also NA, the carry-back propagates NA (acceptable;
+    # residual missingness handled by MICE).
     r4smoken = case_when(
       !is.na(r4smoken) ~ r4smoken,  # Keep existing values
       is.na(r4smoken) ~ r6smoken    # Fill missing with wave 6
     ),
-    
-    # Fill r5smoken missing values with r6smoken  
+
+    # Fill r5smoken missing values with r6smoken
     r5smoken = case_when(
       !is.na(r5smoken) ~ r5smoken,  # Keep existing values
       is.na(r5smoken) ~ r6smoken    # Fill missing with wave 6
@@ -460,7 +462,7 @@ missingness that depend on the value of another variable:
 As with FCS-1L-wide method, the variables first need to be stored as correct type before 
 generating the imputations, as described earlier. *The cluster variable must be of type integer*.
 
-Therefore we configure the variable types so that each variable is imputed using an appropriate method: logistic regression for binary variables, ordered logistic regression for ordinal variables, and polytomous regression for unordered categorical data.
+Therefore we configure the variable types so that each variable is imputed using an appropriate method: logistic regression for binary variables, and predictive mean matching (`2l.pmm`) for ordinal and continuous variables. For ordinal variables (`painchr_ext`, `PA_cat`) integer-coded with a bounded observed range, PMM is preferred over ordered logistic regression because it draws imputed values directly from observed donor cases, preserving the observed scale without imposing distributional assumptions.
 
 ```{r}
 # Check missingness by variable
@@ -496,14 +498,12 @@ lta_vars <- c("idauniq", "wave", "raagey", "ragender", "raeduc_e",
               "nettotw_bu_s_log", "MLTC", "cesd_lat_shifted", "lnlys",
               "partner", "ssupport6_log1p", "painchr_ext", "lvimp_shifted")
 
-# Number of imputations set to the percentage of incomplete cases (rows with at
-# least one missing value on any analytic variable). Rule: m >= % incomplete cases
-# [@white2011multiple].
+# Diagnostic only: percentage of incomplete cases on analytic variables.
+# M = 60 is determined by the von Hippel (2020) two-stage FMI procedure
+# in chunks 'imputation-stage1' / 'imputation-stage2' below, not by this rule.
 analytic_vars_present <- intersect(lta_vars, names(Missingdata_long))
 pct_incomplete <- mean(!complete.cases(Missingdata_long[, analytic_vars_present])) * 100
-
-m_imputations <- ceiling(pct_incomplete)
-print(paste("Number of imputations:", m_imputations))
+print(paste("Pct incomplete cases (analytic vars):", round(pct_incomplete, 1)))
 ```
 
 
@@ -531,7 +531,8 @@ meth1[incomplete_binary] <- "2l.bin"  # Two-level logistic regression
 ## structural missingness will fail with 2l.xxx methods
 #meth1["mbmi"] <- "pmm"        # Single-level instead of 2l.pmm (wave 5 structural missing)
 #meth1["hscrp"] <- "pmm"       # Single-level instead of 2l.pmm (wave 5 structural missing)
-meth1["ssupport6_log1p"] <- "pmm"   # Single-level instead of 2l.pmm (conditional on partner)
+meth1["ssupport6_log1p"] <- "pmm"   # Single-level PMM: 2l.pmm causes convergence failures for
+                                   # structurally missing variables (ssupport6 absent for partner==0)
 meth1["raeduc_e"] <- "2lonly.pmm"  # Safer if raeduc_e has specific values
 
 
@@ -546,7 +547,8 @@ pred <- make.predictorMatrix(Missingdata_long)
 # with "0" we tell which variables are not predictors
 # leaving blank the row means all rows
 #pred["predicted","predictor"]
-pred[,c("idauniq")] <- 0
+# idauniq set to -2 below as cluster variable; this intermediate 0 is overwritten
+pred[, "idauniq"] <- -2  # Cluster grouping variable
 
 # time-fixed variables should not be imputed using wave as a predictor —
 # wave has no meaning for variables that do not vary within person.
@@ -554,8 +556,6 @@ pred[,c("idauniq")] <- 0
 # ragender and raagey are complete and do not require imputation.
 pred[lv2_vars, c("wave")] <- 0
 
-# Specify alias as cluster variable
-pred[, "idauniq"] <- -2  # Cluster grouping variable
 
 
 # To specify random slopes for a predictor in a univariate imputation model for a certain variable, 
@@ -742,7 +742,8 @@ fmi_pilot <- rbind(fmi_painchr, fmi_lvimp,
 fmi_pilot$M_recommended <- recommended_M(fmi_pilot$gamma_upper)  # von Hippel (2018)
 
 worst <- fmi_pilot %>%
-  filter(!parameter %in% c("lnlys", "wave")) %>%
+  filter(!parameter %in% c("lnlys", "wave")) %>%  # excluded: lnlys is auxiliary covariate not LTA outcome;
+                                                    # wave is a design variable, not analytically uncertain
   slice_max(gamma_upper, n = 1)
 
 cat("=== Stage 1 Imputation Diagnostics (von Hippel 2018) ===\n")
@@ -768,6 +769,8 @@ cat(ifelse(
   "M_recommended <= 20 — pilot imputations are sufficient.\n",
   "M_recommended > 20  — proceed with stage 2 imputations.\n"
 ))
+
+M_recommended <- worst$M_recommended  # scalar for stage-2 chunk
 ```
 
 ```{r imputation-stage2, eval=FALSE}

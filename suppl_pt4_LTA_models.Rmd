@@ -81,7 +81,7 @@ Variables<-c(
                "wealthQ_bin",           # binary: "Least deprived Qs"; "Most Deprived Q"
                "MLTC",                   # numeric (count)
                "cesd_lat_shifted",       # numeric Depression score
-               "loneliness_group",              # binary: "Low, high loneliness"
+               "lnlys",                         # UCLA-4 loneliness mean (continuous, 1–4)
                "partner",
                "ssupport6_cat",          # categorical (no partner, high support, low support)
             # OUTCOME'S INDICATORS
@@ -191,8 +191,7 @@ TE_initial_prob_vars<- c(
 TE_trans_prob_vars<- c(TE_initial_prob_vars)
 
 # DE_initial_prob_vars: 
-DE_vars<-c(TE_initial_prob_vars,"cesd_lat_shifted","loneliness_group")
-DE_vars_sub<-c(TE_initial_prob_vars,"cesd_lat_shifted")
+DE_vars<-c(TE_initial_prob_vars,"cesd_lat_shifted","lnlys")
 
 
 ###  TE formula
@@ -216,9 +215,9 @@ fmLatent_TE <- lmestFormula(data = LTAdata_long, response = latent_state_vars,
 # depression and loneliness.
 #
 # DE model rationale: partnership quality and emotional wellbeing are persistently
-# co-occurring throughout waves 4-6 (loneliness: Cramér's V = 0.291; depression:
-# η² = 0.074, stable gradient across all three waves). This justifies asking
-# "how much of the partnership → pain state association operates through, or
+# co-occurring throughout waves 4-6 (loneliness lnlys: η² = 0.143, F(2,8011) = 665.8;
+# depression: η² = 0.074, stable gradient across all three waves). This justifies
+# asking "how much of the partnership → pain state association operates through, or
 # alongside, depression and loneliness?"
 fmLatent_DE <- lmestFormula(data = LTAdata_long, response = latent_state_vars,
                                 LatentInitial    = DE_vars,
@@ -241,14 +240,23 @@ library(rstatix)  # eta_squared()
 
 baseline <- LTAdata_long %>% filter(time == 1)
 
-# ── 1. Loneliness × partnership status (both categorical) ─────────────────
-tab_lon <- table(baseline$loneliness_group, baseline$ssupport6_cat)
+# ── 1. Loneliness × partnership status (continuous × 3-level factor) ──────
+cat("=== Loneliness × partnership: means by group ===\n")
+baseline %>%
+  group_by(ssupport6_cat) %>%
+  summarise(
+    n          = n(),
+    mean_lnlys = round(mean(lnlys, na.rm = TRUE), 3),
+    sd_lnlys   = round(sd(lnlys, na.rm = TRUE), 3),
+    .groups    = "drop"
+  ) %>%
+  print()
 
-cat("=== Loneliness × partnership: column proportions ===\n")
-print(round(prop.table(tab_lon, margin = 2), 3))
-
-cat("\nCramér's V:\n")
-print(assocstats(tab_lon))
+aov_lon <- aov(lnlys ~ ssupport6_cat, data = baseline)
+cat("\nOne-way ANOVA:\n")
+print(summary(aov_lon))
+cat("\nη²:\n")
+print(eta_squared(aov_lon))
 
 # ── 2. Depression × partnership status (continuous × 3-level factor) ──────
 cat("\n=== Depression × partnership: means by group ===\n")
@@ -274,22 +282,23 @@ LTAdata_long %>%
   group_by(time, ssupport6_cat) %>%
   summarise(
     mean_cesd        = round(mean(cesd_lat_shifted, na.rm = TRUE), 3),
-    prop_high_lonely = round(mean(loneliness_group == "High", na.rm = TRUE), 3),
+    mean_lnlys       = round(mean(lnlys, na.rm = TRUE), 3),
     .groups          = "drop"
   ) %>%
   arrange(ssupport6_cat, time) %>%
   print()
 ```
 
-**Expected results (pre-computed in archive/LTA_pull_res_tables.r):**
+**Expected results:**
 
-- Loneliness × partnership: Cramér's V = 0.291 — moderate, monotonic gradient
-  (supportive: ~36% high loneliness; less-than-supportive: ~61%; no-partner: ~69%)
+- Loneliness × partnership (continuous lnlys): η² = 0.143, F(2, 8011) = 665.8, p < 2×10⁻¹⁶ —
+  monotonic gradient (supportive mean lnlys ≈ 1.29; less-than-supportive ≈ 1.55; no-partner ≈ 1.69).
+  Kruskal-Wallis confirms (χ²(2) = 1132, p < 2×10⁻¹⁶). Stable across waves 4–6
+  (supportive range 1.27–1.29; no-partner range 1.67–1.69).
 - Depression × partnership: η² = 0.074 (above Cohen's medium threshold of 0.06),
   F(2, 8011) = 320.2, p < 2×10⁻¹⁶ — monotonic gradient
   (supportive mean CES-D ≈ 0.64; less-than-supportive ≈ 0.94; no-partner ≈ 1.13)
-- Both gradients are stable across waves 4–6 (supportive range 0.61–0.64;
-  no-partner range 1.13–1.14), confirming this is not a cross-sectional artefact.
+- Both gradients are stable across waves 4–6, confirming this is not a cross-sectional artefact.
 
 Both associations are moderate in magnitude but not collinear. The consistent
 monotonic gradient in the expected direction — better partnership quality → less
@@ -325,7 +334,7 @@ We expect to find respondents with significantly impaired functioning (high heal
 
 As per Moore et al. (2025), we run all possible k+1 models until reaching consistent nonconvergence and compare how well each solution represents the data. `lmestSearch()` addresses both model selection and the multimodality of the likelihood function by employing different initializations to search for the global maximum.
 
-Two main criteria guide selection of k: AIC and BIC. BIC is generally preferred in longitudinal latent class modeling for its stronger penalty on model complexity.
+Two main criteria guide selection of k: AIC and BIC. 
 
 ```{r eval=FALSE}
 Lmest_search <- lmestSearch(responsesFormula = fmLatent_TE$responsesFormula,
@@ -340,12 +349,14 @@ timestamp_suffix <- format(Sys.time(), "%Y%m%d_%H%M%S")
 saveRDS(Lmest_search, paste0(paper1_MODELS_rds_path, "K-State_parametrisation_n400_", timestamp_suffix, ".rds"))
 saveRDS(Lmest_search, paste0(paper1_MODELS_rds_path, "K-State_parametrisation_n400.rds"))
 ```
+We acknowledge that in our small-$T$, large-$N$ panel design, the BIC may exhibit a known tendency to favor overly parsimonious models. However, the continued numerical decrease in BIC at $k=5$ was undermined by evident convergence instability @costa2010model: Visual examination of the log-likelihood convergences shows marked inconsistent recovery of the global maxima across random starts. Considering this we cannot rely on information criteria alone. Our selection of $k=4$ is therefore based on i) our theoretical expectations, ii) the interpretability of the $k=4$ states, and iii) the convergence stability of this solution. In particular, and in constrast to $k=5$, $k=4 $ offers a more numerically reproducible solution.
 
 ```{r echo= FALSE}
 Lmest_search <- readRDS(paste0(paper1_MODELS_rds_path, "K-State_parametrisation_n400.rds"))
 Lmest_search %>% summary()
 Lmest_search$out.single[[4]] %>% plot(what = "CondProb")
 
+library(gridExtra)  # required by lmestSearch_plot()
 state5_llDiffs <- lmestSearch_plot(Lmest_search$out.single, k = 5, k_multiplier = 3, plot_hist = TRUE)
 state4_llDiffs <- lmestSearch_plot(Lmest_search$out.single, k = 4, k_multiplier = 3, plot_hist = TRUE)
 state3_llDiffs <- lmestSearch_plot(Lmest_search$out.single, k = 3, k_multiplier = 3, plot_hist = TRUE)
@@ -728,9 +739,9 @@ noexp_vals <- data.frame(
   lK       = c(TotalEffects$lk,  TotalEffects_init_noEXP$lk,  TotalEffects_trans_noEXP$lk),
   AIC      = c(TotalEffects$aic, TotalEffects_init_noEXP$aic, TotalEffects_trans_noEXP$aic),
   BIC      = c(TotalEffects$bic, TotalEffects_init_noEXP$bic, TotalEffects_trans_noEXP$bic),
-  LRT_chi2 = c(NA, round(LR_init, 2),  round(LR_trans, 2)),
-  df       = c(NA, df_init,  df_trans),
-  p        = c(NA, round(p_init, 4), round(p_trans, 4))
+  LRT_chi2 = c("-", round(LR_init, 2),  round(LR_trans, 2)),
+  df       = c("-", df_init,  df_trans),
+  p        = c("-", ifelse(p_init<0.001,"<.001",p_init), ifelse(p_trans<0.001,"<.001",p_trans))
 )
 
 kable(noexp_vals, row.names = FALSE,

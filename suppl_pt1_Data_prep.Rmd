@@ -24,7 +24,7 @@ library(polycor)
 library(patchwork)
 library(corrplot)
 library(GGally)
-source("~/ELSA-partners/Sources/Paper1_func.R")
+source("Sources/Paper1_func.R")
 
 ELSA_tab_path<-"~/private_WP5/WP5_data/tab/"
 clean_tab_path<-"~/private_WP5/WP5_data/"
@@ -382,6 +382,8 @@ ssupport6_items<- c(paste0("r",4:6,"sustdfe"),
             paste0("r",4:6,"sgetnev"))
 
 col_with_NA<-c(painVars, painBin,hepagVars,CRPVars,ssupport6_items,DemoVars,deprVars,PActVars)
+# r4/5/6ssupport6 (sum score) intentionally excluded: partnership derivation relies on >=0
+# to distinguish valid scores from negative ELSA missingness codes.
 
 H_elsa_w4_6<-H_elsa_w4_6 %>%
   mutate(across(all_of(col_with_NA), ~if_else(. < 0, NA_real_, .)))
@@ -734,43 +736,43 @@ H_elsa_w4_6 <- create_pain_locations_count(H_elsa_w4_6, "r6pain_locN", wave6_var
 
 0 NO PAIN
 1 ACUTE PAIN
-3 CHRONIC
-4 CHRONIC 3+ locations
+2 CHRONIC
+3 CHRONIC 3+ locations
 
 ```{r}
 H_elsa_w4_6<- H_elsa_w4_6%>% mutate(
                             r4painchr_ext = case_when(
                                     r4painchr == 0 ~ 0,
-                                    r4painchr == 1 & r4pain_locN_cat == "2 or less location"  ~ 1,
+                                    r4painchr == 1 ~ 1,
                                     r4painchr == 2 & r4pain_locN_cat == "2 or less location"  ~ 2,
                                     r4painchr == 2 & r4pain_locN_cat == "3 or more locations" ~ 3,
                                     TRUE ~ NA_real_
-                                    )%>% factor(levels = 0:3, 
-                                                labels = c("No pain", 
-                                                           "Acute pain", #"Acute widespread",
-                                                           "Chronic pain", 
+                                    )%>% factor(levels = 0:3,
+                                                labels = c("No pain",
+                                                           "Acute pain",
+                                                           "Chronic pain",
                                                            "Chronic 3+locations")),
                             r5painchr_ext = case_when(
                                     r5painchr == 0 ~ 0,
-                                    r5painchr == 1 & r5pain_locN_cat == "2 or less location"  ~ 1,
+                                    r5painchr == 1 ~ 1,
                                     r5painchr == 2 & r5pain_locN_cat == "2 or less location"  ~ 2,
                                     r5painchr == 2 & r5pain_locN_cat == "3 or more locations" ~ 3,
                                     TRUE ~ NA_real_
-                                    )%>% factor(levels = 0:3, 
-                                                labels = c("No pain", 
-                                                           "Acute pain", #"Acute widespread",
-                                                           "Chronic pain", 
+                                    )%>% factor(levels = 0:3,
+                                                labels = c("No pain",
+                                                           "Acute pain",
+                                                           "Chronic pain",
                                                            "Chronic 3+locations")),
                             r6painchr_ext = case_when(
                                     r6painchr == 0 ~ 0,
-                                    r6painchr == 1 & r6pain_locN_cat == "2 or less location"  ~ 1,
+                                    r6painchr == 1 ~ 1,
                                     r6painchr == 2 & r6pain_locN_cat == "2 or less location"  ~ 2,
                                     r6painchr == 2 & r6pain_locN_cat == "3 or more locations" ~ 3,
                                     TRUE ~ NA_real_
-                                    )%>% factor(levels = 0:3, 
-                                                labels = c("No pain", 
-                                                           "Acute pain", #"Acute widespread",
-                                                           "Chronic pain", 
+                                    )%>% factor(levels = 0:3,
+                                                labels = c("No pain",
+                                                           "Acute pain",
+                                                           "Chronic pain",
                                                            "Chronic 3+locations")),
                             )
 
@@ -780,11 +782,11 @@ H_elsa_w4_6<- H_elsa_w4_6%>% mutate(
 ## Partnership classification
 We create a partnership variable that categorises each respondent as having a partner if any of the following is true:
 * r4mstat == 1 ("married")
-* r4mstat == 4 ("partnered")
-* r4mpart == 1 ("whether the respondent partnership is implied")
-* r4ssupport >0 ("partnership implied because the respondent reported the Marital strain experienced with their partner")
+* r4mpart == 1 ("cohabiting/partnered, not married")
+* r4ssupport6 >= 0 ("partnership implied because the respondent reported the Marital strain experienced with their partner; negative values are ELSA missingness flags")
 
 ```{r}
+## note that mpart == 1 is an harmonised that shows whether partnership is implied at the current wave 
 H_elsa_w4_6 <- H_elsa_w4_6 %>%
   mutate(
     r4partner = case_when(r4mpart == 1 | r4mstat == 1 | r4ssupport6>=0 ~ 1 , # >=0: negative codes = ELSA missingness flags; valid scores range 1–4

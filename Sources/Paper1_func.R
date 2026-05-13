@@ -804,7 +804,13 @@ rebase_and_refit_lmest <- function(fit_model, state_order, latent_formula, respo
     Psi = Psi_reordered
   )
   
-  # Refit model with reordered states
+  # Refit model with reordered states.
+  # maxit=0 skips the EM loop entirely and goes straight to SE computation via
+  # est_multilogit(ex=TRUE) — the non-iterative score/information extraction path.
+  # This avoids a hang that occurs for some imputations when start=2 is given
+  # parameters at the exact global maximum: the M-step NR has gradient≈0 and a
+  # near-singular Hessian (complete separation in rare transitions), causing
+  # est_multilogit's inner loop to diverge. maxit=0 bypasses that loop entirely.
   fit_reordered <- lmest(
     responsesFormula = response_formula,
     latentFormula = latent_formula,
@@ -816,7 +822,8 @@ rebase_and_refit_lmest <- function(fit_model, state_order, latent_formula, respo
     fort = TRUE,
     parInit = new_start_values,
     output = TRUE,
-    out_se = out_SE
+    out_se = out_SE,
+    maxit = 0
   )
   
   # Plot conditional probabilities if requested
@@ -1623,11 +1630,9 @@ run_lmest_parallel_seeds <- function(config, data, n_reps = 200, ntry = 1, n_cor
   
   
   cat(sprintf("\nCompleted in %.1f minutes\n", duration))
-  cat(sprintf("Best LL: %.4f (rep %d, seed %d)\n", best_result$lk, best_result$rep_id, best_result$seed))
-  cat(sprintf("Stability(replications): %d/%d within 5 of max (%.1f%%)\n", n_at_max, n_reps, 100*n_at_max/n_reps))
-  cat(sprintf("Stability (all starts): %d/%d within 5 of max (%.1f%%)\n", 
-              n_at_max_all, length(all_lls), 100*n_at_max_all/length(all_lls)))
-  cat(sprintf("Total random starts captured: %d\n", length(all_lls)))
+  cat(sprintf("Best LL: %.4f\n", best_result$lk))
+  cat(sprintf("Random starts: %d total | %d within 5 LL units of best (%.1f%%)\n",
+              length(all_lls), n_at_max_all, 100 * n_at_max_all / length(all_lls)))
   
   p1 <- NULL
   if (plot_hist && length(all_lls) > 0) {
@@ -1654,6 +1659,7 @@ run_lmest_parallel_seeds <- function(config, data, n_reps = 200, ntry = 1, n_cor
     lks = lks,
     lk_diffs = lk_diffs,
     n_at_max = n_at_max,
+    n_at_max_all = n_at_max_all,
     n_reps = n_reps,
     duration_mins = as.numeric(duration),
     all_lls = all_lls,
@@ -1866,7 +1872,7 @@ Wealth -> "Partnership Status"
 ################ POST-PROCESSING POOLING FUNCTIONS (pt4.2)
 ################################################################################
 
-check_ll_consistency <- function(label, n_imp, path) {
+check_ll_consistency <- function(label, n_imp, path, k = 2.5) {
   cat(sprintf("\n--- Cross-imputation LL check: %s ---\n", label))
   lls <- numeric(n_imp)
   for (i in seq_len(n_imp)) {
@@ -1874,35 +1880,36 @@ check_ll_consistency <- function(label, n_imp, path) {
     lls[i]  <- r$best_model$lk
     rm(r); gc()
   }
+  ll_median <- median(lls)
+  ll_mad    <- mad(lls)     # 1.4826 * median(|x - median(x)|); consistent with lmestSearch_plot()
+  threshold <- ll_median - k * ll_mad
   cat(sprintf("LL range: %.4f to %.4f\n", min(lls), max(lls)))
-  cat(sprintf("LL median: %.4f  |  SD: %.4f\n", median(lls), sd(lls)))
+  cat(sprintf("LL median: %.4f  |  MAD: %.4f\n", ll_median, ll_mad))
   cat(sprintf("Max spread: %.2f LL units\n", max(lls) - min(lls)))
-  ## check when imputations converged on a very different LL (more than median - 2SD LL) that is SD more negative than median
-  outliers <- which(lls < (median(lls) - 2 * sd(lls)))
+  outliers <- which(lls < threshold)
   if (length(outliers) > 0) {
-    warning(sprintf("%s: imputation(s) %s are >2 SD below median LL — possible local maximum. Inspect before pooling.",
-                    label, paste(outliers, collapse = ", ")))
+    warning(sprintf("%s: imputation(s) %s are >%.1f MAD below median LL — possible local maximum. Inspect before pooling.",
+                    label, paste(outliers, collapse = ", "), k))
   } else {
     cat("  ✓ All imputations within acceptable LL range.\n")
   }
-  threshold <- median(lls) - 2 * sd(lls)
   p <- ggplot2::ggplot(data.frame(lls = lls, imp = seq_along(lls)),
                        ggplot2::aes(x = lls)) +
     ggplot2::geom_histogram(fill = "lightblue", colour = "black", bins = 20) +
-    ggplot2::geom_vline(xintercept = median(lls), colour = "darkgreen",
+    ggplot2::geom_vline(xintercept = ll_median, colour = "darkgreen",
                         linetype = "solid", linewidth = 0.8) +
-    ggplot2::geom_vline(xintercept = threshold,   colour = "red",
+    ggplot2::geom_vline(xintercept = threshold, colour = "red",
                         linetype = "dashed", linewidth = 0.8) +
     ggplot2::labs(
       title   = sprintf("Best LL per imputation: %s", label),
       x       = "Best LL",
       y       = "Count",
-      caption = sprintf("Green: median (%.2f)  |  Red dashed: median − 2SD threshold (%.2f)",
-                        median(lls), threshold)
+      caption = sprintf("Green: median (%.2f)  |  Red dashed: median − %.1f×MAD threshold (%.2f)",
+                        ll_median, k, threshold)
     ) +
     ggplot2::theme_minimal()
   print(p)
-  invisible(lls)
+  invisible(list(lls = lls, plot = p, outliers = outliers, threshold = threshold))
 }
 
 

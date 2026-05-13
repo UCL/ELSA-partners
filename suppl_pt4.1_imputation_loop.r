@@ -46,7 +46,7 @@ models_path <- "~/private_WP5/WP5_data/model_fits/imputations/"
 # ==============================================================================
 
 updated_mids   <- readRDS(paste0(rds_path, "mice_updatedMIDS_VH.rds"))
-n_imputations  <- updated_mids$m   # 22
+n_imputations  <- updated_mids$m   # 60
 
 
 # ==============================================================================
@@ -65,7 +65,7 @@ Variables <- c(
   "wealthQ_bin",            # most deprived Q vs rest
   "MLTC",                   # count of long-term conditions
   "cesd_lat_shifted",       # depression latent score (shifted)
-  "loneliness_group",       # Low / High loneliness
+  "lnlys",                  # loneliness continuous (log1p-UCLA-4)
   "partner",                # No-partner / has-partner
   "ssupport6_cat",          # No-partner / less than supportive / supportive
   # LTA indicators
@@ -102,7 +102,7 @@ TE_initial_prob_vars <- c("Sex_BIN", "raeduc_e", "wealthQ_bin",
                           "ssupport6_cat", "MLTC", "raagey_z")
 TE_trans_prob_vars   <- TE_initial_prob_vars
 
-DE_vars              <- c(TE_initial_prob_vars, "cesd_lat_shifted", "loneliness_group")
+DE_vars              <- c(TE_initial_prob_vars, "cesd_lat_shifted", "lnlys")
 
 fmLatent_TE <- lmestFormula(data = one_imp, response = latent_state_vars,
                             LatentInitial   = TE_initial_prob_vars,
@@ -138,6 +138,14 @@ n_cores <- 24
 
 fit_one <- function(imp, config, label) {
 
+  out_file <- paste0(models_path, "raw_results_", label, "_imp", imp, ".rds")
+  tmp_file <- paste0(out_file, ".tmp")
+
+  if (file.exists(out_file)) {
+    cat(sprintf("[%s] Imputation %d already on disk — skipping.\n", label, imp))
+    return(invisible(NULL))
+  }
+
   cat("\n", rep("=", 80), "\n")
   cat(sprintf("[%s] Processing imputation %d of %d\n", label, imp, n_imputations))
   cat(rep("=", 80), "\n\n")
@@ -160,8 +168,8 @@ fit_one <- function(imp, config, label) {
               100 * raw_results$n_at_max_all / length(raw_results$all_lls),
               elapsed))
 
-  saveRDS(raw_results,
-          paste0(models_path, "raw_results_", label, "_imp", imp, ".rds"))
+  saveRDS(raw_results, tmp_file)
+  file.rename(tmp_file, out_file)  # atomic: .rds only exists if fully written
 
   rm(imp_data, raw_results)
   gc()

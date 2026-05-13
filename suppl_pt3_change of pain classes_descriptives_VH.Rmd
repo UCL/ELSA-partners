@@ -23,6 +23,10 @@ library(polycor)
 library(patchwork)
 library(corrplot)
 library(GGally)
+library(parallel)
+library(table1)
+library(knitr)
+library(tableone)
 
 source("Sources/Paper1_func.R")
 
@@ -55,13 +59,13 @@ The table below summarises all variables entering the LTA model: their analysis 
 | Outcome indicator | `lvimp_shifted_cat` | `rXlvimp` items (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | IRT score → zero separation + PAM clustering → three levels; Wave 4 medoids fixed; pt2.1 |
 | Exposure | `partner` | `rXmpart` (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | Binary recoded (0/1); pt1 |
 | Exposure | `ssupport6_cat` | `rXssupport6` (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | Median cut at 1.5 (back-transformed from log1p) → three levels; pt4 |
-| TE confounder | `Sex_BIN` | `ragender` (harmonised) | `Hg3_w1_9_ALL.tab` | No | Binary factor (male reference); pt2 |
-| TE confounder | `raagey_z` | `raagey` = `r4agey` (harmonised) | `Hg3_w1_9_ALL.tab` | No | Standardised; Wave 4 baseline only; pt1 |
+| TE confounder | `Sex_BIN` | `ragender` (harmonised) | `Hg3_w1_9_ALL.tab` | No | Binary factor (male reference); pt2.1 |
+| TE confounder | `raagey_z` | `raagey` = `r4agey` (harmonised) | `Hg3_w1_9_ALL.tab` | No | Standardised; Wave 4 baseline only; pt2.1 |
 | TE confounder | `raeduc_e` | `raeduc_e` (harmonised) | `Hg3_w1_9_ALL.tab` | No | −15 recoded to “other”; five-level factor; pt1 |
 | TE confounder | `wealthQ_bin` | `rXnettotw_bu_s`, `rXtotwq5_bu_s` | `wave_N_financial_derived_variables.tab` | Yes | Worst-off quintile (Q1) vs all others (Q2–Q5); pt2.1 |
 | TE confounder | `MLTC` | `rXangine`, `rXstroke`, `rXdiabe`, `rXlunge`, `rXarthre`, `rXcancre`, `rXpsyche` (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | Count → categorical (0/1/2/3+); pt1 |
 | DE confounder | `cesd_lat_shifted` | `rXcesd` items (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | CFA latent score (metric invariance model); shifted to non-negative before imputation; pt2 |
-| DE confounder | `loneliness_group` | `rXlnlys` (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | PAM clustering → binary (low/high; medoids 1.00, 1.75); pt2.1 |
+| DE confounder | `lnlys` | `rXlnlys` (harmonised) | `Hg3_w1_9_ALL.tab` | Yes | UCLA-4 mean, continuous; imputed in pt2, passed through pt2.1 |
 
 Note: `hrtatte` (myocardial infarction) is present in the data but excluded from MLTC by design — CHD is represented by angina (`rXangine`) only, following [@poole2020combined].
 
@@ -162,9 +166,9 @@ Note: mental health disorders are included as a countable MLTC condition; depres
 
 Depression was assessed using the eight-item CES-D scale. `RwCESD` is the sum of `RwDEPRES`, `RwEFFORT`, `RwSLEEPR`, `RwFLONE`, `RwFSAD`, `RwGOING`, `(1 − RwWHAPPY)`, and `(1 − RwENLIFE)`; higher scores indicate more negative affect. A latent factor score was derived from a confirmatory factor analysis (metric invariance model) and shifted to be non-negative prior to imputation (`cesd_lat_shifted`) [@karim2015validation]. Time-varying.
 
-### Loneliness (`rXlnlys` / `loneliness_group`)
+### Loneliness (`rXlnlys`)
 
-Loneliness was assessed as the mean of four UCLA loneliness items (`RwCOMPLAC`, `RwLEFTOUT`, `RwISOLATE`, `RwINTUNE`; composite: `RwLNLYS`). Higher scores indicate greater loneliness. The psychometric properties of short UCLA loneliness scales have been validated against the full 20-item version, showing adequate dimensional reliability and convergent validity [@gosling2024measuring]. However, @gosling2024measuring also demonstrate that dichotomising short UCLA scales produces variable prevalence estimates and sensitivity/specificity below acceptable thresholds depending on the cut-off chosen. To mitigate this, we binarised the score using PAM clustering (medoids 1.00 and 1.75), a data-driven approach that identifies the natural break in the distribution rather than imposing an arbitrary threshold. The binarisation was applied to the imputed datasets in `suppl_pt2.1_DERIVED VARIABLES_VH.Rmd`. Time-varying.
+Loneliness was assessed as the mean of four UCLA loneliness items (`RwCOMPLAC`, `RwLEFTOUT`, `RwISOLATE`, `RwINTUNE`; composite: `RwLNLYS`). Higher scores indicate greater loneliness. The psychometric properties of short UCLA loneliness scales have been validated against the full 20-item version, showing adequate dimensional reliability and convergent validity [@gosling2024measuring]. @gosling2024measuring also demonstrate that dichotomising short UCLA scales produces variable prevalence estimates and sensitivity/specificity below acceptable thresholds depending on the cut-off chosen; accordingly, the score was retained as continuous. Time-varying.
 
 
 ## Confounder Selection and DAGs
@@ -188,7 +192,7 @@ cut_age_brackets <- function(ages) {
   cut(ages, 
       breaks = c(50,60,70,80,Inf), 
       labels = c("50-59", "60-69","70-79", "80+"),
-      right = TRUE)
+      right = F)
 }
 
 ## HSE age categories
@@ -394,12 +398,13 @@ education_dataw1 <- H_elsa_w1 %>%
     summarise(count = n()) %>%
     mutate(
       category = case_when(
-        raeduc_e == 1 ~ "Less than upper secondary",
-        raeduc_e == 2 ~ "other education", # this was originally category "-15"
-        raeduc_e == 3 ~ "Tertiary",
-        raeduc_e == 4 ~ "Some college",
-        raeduc_e == 5 ~ "College and above",
-        is.na(raeduc_e) ~ "Missing"
+        is.na(raeduc_e)  ~ "Missing",
+        raeduc_e == 1    ~ "Less than upper secondary",
+        raeduc_e == 2    ~ "other education", # this was originally category "-15"
+        raeduc_e == 3    ~ "Secondary",
+        raeduc_e == 4    ~ "Some college",
+        raeduc_e == 5    ~ "College and above",
+        TRUE             ~ "Unknown"
       ),
       percentage = count / sum(count) * 100,
       wave = "Wave 1"
@@ -410,12 +415,13 @@ education_dataw4 <- H_elsa_w4_6 %>%
     summarise(count = n()) %>%
     mutate(
       category = case_when(
-        raeduc_e == 1 ~ "Less than upper secondary",
-        raeduc_e == 2 ~ "other education", # this was originally category "-15"
-        raeduc_e == 3 ~ "Tertiary",
-        raeduc_e == 4 ~ "Some college",
-        raeduc_e == 5 ~ "College and above",
-        is.na(raeduc_e) ~ "Missing"
+        is.na(raeduc_e)  ~ "Missing",
+        raeduc_e == 1    ~ "Less than upper secondary",
+        raeduc_e == 2    ~ "other education", # this was originally category "-15"
+        raeduc_e == 3    ~ "Secondary",
+        raeduc_e == 4    ~ "Some college",
+        raeduc_e == 5    ~ "College and above",
+        TRUE             ~ "Unknown"
       ),
       percentage = count / sum(count) * 100,
       wave = "Wave 4"
@@ -431,7 +437,7 @@ education_data <- bind_rows(education_dataw1, education_dataw4) %>%
       levels = c(
         "Less than upper secondary", 
         "other education", # this was originally category "-15"
-        "Tertiary", 
+        "Secondary",
         "Some college", 
         "College and above",
         "Missing"
@@ -952,16 +958,6 @@ H_elsa_w4_6 <- H_elsa_w4_6 %>%
       r4totwq5_bu_s >  1 ~ "2:5 least deprived Q",
       TRUE ~ NA_character_
     ) %>% as.factor(),
-    r5wealthBIN = case_when(
-      r5totwq5_bu_s == 1 ~ "most deprived Q",
-      r5totwq5_bu_s >  1 ~ "2:5 least deprived Q",
-      TRUE ~ NA_character_
-    ) %>% as.factor(),
-    r6wealthBIN = case_when(
-      r6totwq5_bu_s == 1 ~ "most deprived Q",
-      r6totwq5_bu_s >  1 ~ "2:5 least deprived Q",
-      TRUE ~ NA_character_
-    ) %>% as.factor()
   )
 
 table(H_elsa_w4_6$r4wealthBIN)
@@ -970,9 +966,9 @@ table(H_elsa_w4_6$r4wealthBIN)
 ```{r echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
 H_elsa_w4_6 <- H_elsa_w4_6 %>% mutate(
   r4mbmiBIN = case_when(
-    r4mbmi >= 30 ~ "moderate obesity",
-    r4mbmi < 30  ~ "sub threshold",
-    is.na(r4mbmi) ~ "No nurse data")
+    is.na(r4mbmi)  ~ "No nurse data",
+    r4mbmi >= 30   ~ "moderate obesity",
+    r4mbmi <  30   ~ "sub threshold")
 )
 
 plot_data <- H_elsa_w4_6 %>%
@@ -1091,7 +1087,32 @@ ggplot(H_elsa_w4_6, aes(x = r4painchr_ext,
     caption = paste0("Wave 4 n = ",nrow(H_elsa_w4_6), 
                    "; missing data n = ", NA_count_pain, 
                    " (", round(NA_perc_pain,1), "%)")
-  ) 
+  )
+    
+    
+```
+
+
+### Distribution of `Health impact`
+
+```{r}
+
+plot_data<- H_elsa_w4_6 %>% filter(!is.na(r4painchr_ext))
+plot_data<-plot_data %>% mutate(r4lvimp_shifted = r4lvimp - min(r4lvimp))
+
+ggplot(plot_data, 
+       aes(x = r4lvimp_shifted,
+           fill = factor(r4painchr_ext))) +
+  geom_density(alpha = 0.8) +
+  theme_minimal() +
+  labs(title = "Distribution of Health impact scores by chronic pain status at baseline (Wave 4)",
+       subtitle = "0 = no pain; 1 = acute; 2 = localised chronic (≤2 locations); 3 = multisite chronic (≥3 locations)",
+       x = "Health impact IRT score",
+       y = "Density",
+       fill = "Chronic Pain Status",
+       caption = paste0("Wave 4 n = ",nrow(H_elsa_w4_6),
+                        "; missing data n = ", NA_count_pain,
+                        " (", round(NA_perc_pain,1), "%)")) 
 
 
 
@@ -1101,12 +1122,9 @@ ggplot(H_elsa_w4_6, aes(x = r4painchr_ext,
 # Sample Characteristics — Table 1
 
 ```{r,echo=FALSE,warning=FALSE,message=FALSE,error=FALSE}
-library(table1)
-
 # r4lvimp, r4pain_locN_cat, r4painchr_ext: pass-through from H_elsa_w4_6.rds
 # derived in suppl_pt1_Data_prep.Rmd:
 #   r4lvimp          — IRT pain impact score (pt1 Section "IMPORT impact IRT data")
-#   r4lvimp
 H_elsa_w4_6$r4lvimp_shifted<-H_elsa_w4_6$r4lvimp - min(H_elsa_w4_6$r4lvimp)
 #   r4pain_locN_cat  — pain location count category (pt1 Section "N of Pain Locations")
 #   r4painchr_ext    — extended 4-category classifier (pt1 Section "Composite Chronic pain state + location")
@@ -1127,22 +1145,27 @@ table1_data <- prepare_table1_data(H_elsa_w4_6, var_Ys, var_Xs, var_Covs)
 
 # Create the table
 table1_1 <- table1(~ r4lvimp_shifted + r4pain_locN_cat + r4cesd + r4agey + ragender + raracem +
-                      r4ssupport6 + r4partner + r4totwq5_bu_s + r4wealthBIN + raeduc_e + r4work + 
+                      r4partner + r4totwq5_bu_s + r4wealthBIN + raeduc_e + r4work +
                       r4smoken + r4drinkwn_e + r4mbmi + r4lnlys+ r4MLTC_cat |
-                     r4painchr, 
+                     r4painchr,
                     data = table1_data,
                     render.continuous = my_render_continuous,
                     render.categorical = my_render_categorical,
                     overall = "Total",
                     topclass = "Rtable1-times")
 
-library(knitr)
 
-kable(as.data.frame(table1_1))
+kable(as.data.frame(table1_1),
+      caption = paste0(
+        "Table 1. Wave 4 analytic sample characteristics by observed pain category. ",
+        "n = 7,963 (51 participants excluded due to unclassifiable pain status [missing r4painfr]). ",
+        "Full analytic sample n = 8,014. Missing proportions are based on n = 7,963."
+      ))
 
 
-table1_2 <- table1(~ r4ssupport6 + r4partner | r4painchr, 
-                    data = table1_data,
+# Restrict to partnered only so missing % denominator = n partnered, not full sample
+table1_2 <- table1(~ r4ssupport6 | r4painchr,
+                    data = table1_data %>% filter(r4partner == "With partner"),
                     render.continuous = my_render_continuous,
                     render.categorical = my_render_categorical,
                     overall = "Total",
@@ -1159,7 +1182,6 @@ kable(as.data.frame(table1_2))
 Wave 1 of ELSA was drawn directly from the Health Survey for England (HSE) 2001 and is therefore approximately representative of the English population aged 50+. Wave 4 is our analytic sample (participants completing all three waves). Greater similarity between the two samples supports the external validity of our findings. Chronic pain prevalence is not compared here as the HSE did not include an equivalent measure.
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE, error=FALSE}
-library(tableone)
 
 # Build harmonised dataset from both waves using only variables present in both
 hse_sub <- H_elsa_w1 %>%
@@ -1184,7 +1206,17 @@ hse_sub <- H_elsa_w1 %>%
                               "Two conditions", "Three or more")),
     Employed  = factor(r1work,   levels = c(0, 1), labels = c("Not working", "Working")),
     Smoker    = factor(r1smoken, levels = c(0, 1), labels = c("Non-smoker", "Current smoker")),
-    Partner   = factor(r1partner,levels = c(0, 1), labels = c("Without partner", "With partner"))
+    Partner   = factor(r1partner,levels = c(0, 1), labels = c("Without partner", "With partner")),
+    Race      = factor(raracem,  levels = c(1, 4),  labels = c("White", "Non-White")),
+    # r1cesd not cleaned in pt1 (deprVars starts r3); apply guard here
+    CESD      = if_else(r1cesd < 0, NA_real_, as.double(r1cesd)),
+    # Loneliness: add when r1lnlys confirmed available — if_else(r1lnlys < 0, NA_real_, as.double(r1lnlys))
+    # r1ssupport6 clean in saved rds (min=1, NAs are genuine non-partnered)
+    Spousal_support = r1ssupport6,
+    # r1painlv has negative ELSA codes (-18, -16, -4); exclude here
+    Pain_level = factor(if_else(r1painlv < 0, NA_integer_, as.integer(r1painlv)),
+                        levels = c(0, 1, 2, 3),
+                        labels = c("Not troubled", "Mild", "Moderate", "Severe"))
   )
 
 w4_sub <- H_elsa_w4_6 %>%
@@ -1209,16 +1241,26 @@ w4_sub <- H_elsa_w4_6 %>%
                               "Two conditions", "Three or more")),
     Employed  = factor(r4work,   levels = c(0, 1), labels = c("Not working", "Working")),
     Smoker    = factor(r4smoken, levels = c(0, 1), labels = c("Non-smoker", "Current smoker")),
-    Partner   = factor(r4partner,levels = c(0, 1), labels = c("Without partner", "With partner"))
+    Partner   = factor(r4partner,levels = c(0, 1), labels = c("Without partner", "With partner")),
+    Race      = factor(raracem,  levels = c(1, 4),  labels = c("White", "Non-White")),
+    # r4cesd cleaned in pt1 (deprVars r3:6); r4ssupport6 intentionally not cleaned — guard here
+    CESD      = r4cesd,
+    # Loneliness: add when r1lnlys confirmed — Loneliness = r4lnlys
+    Spousal_support = if_else(r4ssupport6 >= 0, as.double(r4ssupport6), NA_real_),
+    # r4painlv already clean (values 0–3 only)
+    Pain_level = factor(r4painlv,
+                        levels = c(0, 1, 2, 3),
+                        labels = c("Not troubled", "Mild", "Moderate", "Severe"))
   )
 
 hse_w4_df <- bind_rows(hse_sub, w4_sub)
 
 tab2 <- CreateTableOne(
-  vars       = c("Age", "Age_cat", "Sex", "Education", "WealthQ",
-                 "MLTC", "Employed", "Smoker", "Partner"),
-  factorVars = c("Age_cat", "Sex", "Education", "WealthQ",
-                 "MLTC", "Employed", "Smoker", "Partner"),
+  vars       = c("Age", "Age_cat", "Sex", "Race", "Education", "WealthQ",
+                 "MLTC", "Employed", "Smoker", "Partner",
+                 "CESD", "Spousal_support", "Pain_level"),
+  factorVars = c("Age_cat", "Sex", "Race", "Education", "WealthQ",
+                 "MLTC", "Employed", "Smoker", "Partner", "Pain_level"),
   strata     = "Wave",
   data       = hse_w4_df,
   addOverall = FALSE
@@ -1226,18 +1268,30 @@ tab2 <- CreateTableOne(
 
 # SMD only, no p-values
 # |SMD| < 0.10 = negligible imbalance; 0.10-0.20 = small; > 0.20 = meaningful
+n_partnered_w1 <- sum(hse_sub$Partner == "With partner", na.rm = TRUE)
+n_partnered_w4 <- sum(w4_sub$Partner  == "With partner", na.rm = TRUE)
+
 tab2_mat <- print(tab2,
                   smd         = TRUE,
                   test        = FALSE,
                   printToggle = FALSE,
                   noSpaces    = TRUE)
 
+# Rename spousal support row so the label signals it is a conditional statistic
+rownames(tab2_mat) <- sub("Spousal_support",
+                          "Spousal support (partnered)",
+                          rownames(tab2_mat))
+
 kable(tab2_mat,
       caption = paste0(
         "Table 2. Wave 4 analytic sample vs Wave 1 (HSE) reference population. ",
         "SMD = standardised mean difference; |SMD| < 0.10 indicates negligible imbalance. ",
-        "Wave 1 (HSE) n = ", nrow(hse_sub), "; Wave 4 n = ", nrow(w4_sub),
-        ". Chronic pain not compared: no equivalent measure in HSE."
+        "Wave 1 (HSE) n = ", nrow(hse_sub), "; Wave 4 n = ", nrow(w4_sub), ". ",
+        "MLTC: count of doctor-diagnosed long-term conditions (angina, stroke, diabetes, ",
+        "pulmonary disease, arthritis, cancer, mental health disorders; Poole et al., 2020). ",
+        "CESD: 8-item CES-D sum score (0–8). ",
+        "Spousal support: marital quality scale (1–4), reported among those with a partner ",
+        "(Wave 1 n = ", n_partnered_w1, "; Wave 4 n = ", n_partnered_w4, ")."
       ))
 ```
 
