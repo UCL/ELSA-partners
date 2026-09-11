@@ -27,8 +27,9 @@ source("Sources/Paper1_func.R")
 ```{r paths, eval=TRUE}
 rds_path    <- path.expand("~/private_WP5/WP5_data/rds/")
 models_path <- path.expand("~/private_WP5/WP5_data/model_fits/imputations/")
+summary_path<- path.expand("~/private_WP5/WP5_data/model_fits/imputation_summaries/")
 
-n_imputations <- 22
+n_imputations <- 60
 ```
 
 ---
@@ -49,7 +50,7 @@ The pipeline proceeds in three phases:
 **Phase B — Quality checks (Sections 4b–7).** Two cross-imputation checks must pass before pooling: 
 
 * (a) a log-likelihood consistency check confirms no imputation converged to a local maximum; 
-* (b) a state ordering consistency check confirms the severity-based reordering produced the same state-to-content mapping across all 22 imputations.
+* (b) a state ordering consistency check confirms the severity-based reordering produced the same state-to-content mapping across all 60 imputations.
 
 If either check fails, pooling is aborted.
 
@@ -87,7 +88,7 @@ prep_lta_data <- function(imp_df) {
 Variables <- c(
   "idauniq", "time",
   "raagey_z", "Sex_BIN", "raeduc_e",
-  "wealthQ_bin", "MLTC", "cesd_lat_shifted", "loneliness_group",
+  "wealthQ_bin", "MLTC", "cesd_lat_shifted", "lnlys",
   "partner", "ssupport6_cat",
   "painchr_ext", "lvimp_shifted_cat3"
 )
@@ -97,7 +98,7 @@ latent_state_vars <- c("lvimp_shifted_cat3", "painchr_ext")
 
 TE_initial_prob_vars <- c("Sex_BIN", "raeduc_e", "wealthQ_bin",
                            "ssupport6_cat", "MLTC", "raagey_z")
-DE_vars              <- c(TE_initial_prob_vars, "cesd_lat_shifted", "loneliness_group")
+DE_vars              <- c(TE_initial_prob_vars, "cesd_lat_shifted", "lnlys")
 
 fmLatent_TE <- lmestFormula(data = one_imp, response = latent_state_vars,
                              LatentInitial    = TE_initial_prob_vars,
@@ -150,7 +151,11 @@ a single imputation:
     each new severity slot.
 
 ```{r extract-one-def, eval=TRUE}
-extract_one <- function(imp, label, fm_latent, fm_responses) {
+# run_all = FALSE: skip rebase/refit if summaries file already exists on disk
+#           TRUE:  always reprocess (overwrite)
+extract_one <- function(imp, label, fm_latent, fm_responses, run_all = FALSE,out_SE=TRUE) {
+
+  out_file <- paste0(summary_path, "summaries_", label, "_imp", imp, ".rds")
 
   cat(sprintf("\n[%s] Imputation %d of %d\n", label, imp, n_imputations))
 
@@ -175,22 +180,6 @@ extract_one <- function(imp, label, fm_latent, fm_responses) {
               paste(state_order, collapse = "-"),
               min_gap_label, gap_flag))
 
-  # ── rebase + SE ─────────────────────────────────────────────────────────────
-  model_rebased <- rebase_and_refit_lmest(
-    fit_model        = raw$best_model,
-    state_order      = state_order,
-    latent_formula   = fm_latent,
-    response_formula = fm_responses,
-    out_SE           = TRUE,
-    plot             = FALSE
-  )
-
-  # ── summaries ───────────────────────────────────────────────────────────────
-  summaries <- regression_summaries(Model_fit = model_rebased)
-
-  saveRDS(summaries,
-          paste0(models_path, "summaries_", label, "_imp", imp, ".rds"))
-
   # ── state order log entry ───────────────────────────────────────────────────
   log_entry <- tibble(
     imp            = imp,
@@ -199,7 +188,30 @@ extract_one <- function(imp, label, fm_latent, fm_responses) {
     severity_score = ordering$composite_severity[state_order]
   )
 
-  rm(raw, model_rebased, summaries)
+  if (!run_all && file.exists(out_file)) {
+    cat(sprintf("  summaries already on disk — skipping rebase/refit.\n"))
+    rm(raw)
+    gc()
+    return(log_entry)
+  }
+
+  # ── rebase + SE ─────────────────────────────────────────────────────────────
+  model_rebased <- rebase_and_refit_lmest(
+    fit_model        = raw$best_model,
+    state_order      = state_order,
+    latent_formula   = fm_latent,
+    response_formula = fm_responses,
+    out_SE           = out_SE,
+    plot             = FALSE
+  )
+  rm(raw); gc()  # raw holds all 36 model objects — free it before regression_summaries
+
+  # ── summaries ───────────────────────────────────────────────────────────────
+  summaries <- regression_summaries(Model_fit = model_rebased)
+
+  saveRDS(summaries, out_file)
+
+  rm(model_rebased, summaries)
   gc()
 
   log_entry
@@ -210,7 +222,7 @@ extract_one <- function(imp, label, fm_latent, fm_responses) {
 
 # 4. Cross-imputation log-likelihood check
 
-Before post-processing, we verify that all 22 imputations converged to
+Before post-processing, we verify that all 60 imputations converged to
 the same region of the likelihood surface. Each imputation is an
 independently completed dataset drawn from the same MICE posterior, so
 all 22 should produce similar best log-likelihoods (same n, same model
@@ -226,9 +238,87 @@ exclude from pooling and document the decision.
 `check_ll_consistency()` is defined in `Sources/Paper1_func.R` and
 reads `best_model$lk` from every `raw_results_{label}_imp{i}.rds`.
 
-```{r ll-check, eval=TRUE, cache=TRUE}
-lls_TE <- check_ll_consistency("TE", n_imputations, models_path)
-lls_DE <- check_ll_consistency("DE", n_imputations, models_path)
+```{r ll-check, eval=F, cache=F}
+ll_check_TE <- check_ll_consistency("TE", n_imputations, models_path)
+ll_check_DE <- check_ll_consistency("DE", n_imputations, models_path)
+
+lls_consistency_output<-list(TE = ll_check_TE,DE = ll_check_DE)
+
+saveRDS(object = lls_consistency_output, file = paste0(summary_path, "TE_DE_all_best_LLs.rds"))
+```
+
+```{r inspect-flagged}
+
+lls_consistency_output<-readRDS(file = paste0(summary_path, "TE_DE_all_best_LLs.rds"))
+
+lls_consistency <- data.frame(lls_TE = lls_consistency_output$TE$lls,
+                              lls_DE = lls_consistency_output$DE$lls)
+
+# ── Inspect flagged imputations ───────────────────────────────────────────────
+# Imps 50 flagged >2.5 MAD below median in both TE and DE.
+# Imps 15 flagged >2.5 MAD below median in both TE only.
+# Full cross-imputation LL surface review for all 60 imputations is in
+# ll_surface_review.r (uses MAD throughout; run separately).
+#
+# Diagnostics:
+#   best_lk       — best LL found for this imputation, from the winning model
+#                   $lk field (full precision).
+#   starts at max — fraction of ALL individual starts (not rep batches) whose
+#                   parsed LL fell within 5 units of the best. The 36 reps are
+#                   a parallelisation device; batch-level stability depends on
+#                   seed allocation and is not a meaningful convergence diagnostic.
+#   histogram     — shape of the LL surface as explored by all starts. Unimodal
+#                   near best_lk: surface well-identified. Bimodal with a second
+#                   mode above best_lk: a competing solution may have been missed.
+#                   Very low "starts at max" (<5%): surface poorly covered.
+
+flagged_imps <- c(15,50)
+
+ll_median_TE <- median(lls_consistency$lls_TE)
+ll_median_DE <- median(lls_consistency$lls_DE)
+ll_mad_TE    <- mad(lls_consistency$lls_TE)
+ll_mad_DE    <- mad(lls_consistency$lls_DE)
+
+inspect_flagged <- function(label, imp, ll_median, ll_mad) {
+  raw      <- readRDS(paste0(models_path, "raw_results_", label, "_imp", imp, ".rds"))
+  best_lk  <- raw$best_model$lk
+  all_lls  <- raw$all_lls
+  n_starts <- length(all_lls)
+  mad_below <- (ll_median - best_lk) / ll_mad
+
+  n_at_max_all <- if (n_starts > 0) sum((raw$abs_best_lk - all_lls) <= 5) else NA
+
+  cat(sprintf(
+    "\n[%s] Imp %d\n  best_lk       = %.4f  (%+.2f MAD from cross-imp median)\n  starts at max = %s / %d  (%.1f%%)\n",
+    label, imp, best_lk, -mad_below,
+    ifelse(is.na(n_at_max_all), "NA", n_at_max_all),
+    n_starts,
+    ifelse(is.na(n_at_max_all), NA, 100 * n_at_max_all / n_starts)
+  ))
+
+  if (n_starts > 0) {
+    p <- ggplot(data.frame(ll = all_lls), aes(x = ll)) +
+      geom_histogram(bins = 40, fill = "steelblue", colour = "white", alpha = 0.8) +
+      geom_vline(xintercept = best_lk, colour = "firebrick", linetype = "solid", linewidth = 0.9) +
+      labs(
+        title    = sprintf("[%s] Imp %d — LL distribution across %d starts", label, imp, n_starts),
+        subtitle = sprintf("Red: best_lk = %.2f  |  %+.2f MAD from cross-imp median (between-dataset comparison)",
+                           best_lk, -mad_below),
+        x = "Log-likelihood", y = "Count"
+      ) +
+      theme_minimal()
+    print(p)
+  } else {
+    cat("  all_lls empty (old file format)\n")
+  }
+
+  rm(raw); gc()
+  invisible(NULL)
+}
+
+for (imp in flagged_imps) inspect_flagged("TE", imp, ll_median_TE, ll_mad_TE)
+for (imp in 50) inspect_flagged("DE", imp, ll_median_DE, ll_mad_DE)
+
 ```
 
 ---
@@ -237,7 +327,7 @@ lls_DE <- check_ll_consistency("DE", n_imputations, models_path)
 
 The TE model includes the baseline covariates and the partnership/spousal support 
 exposure (`ssupport6_cat`) in both the initial-state and transition equations. 
-Depression (`cesd_lat_shifted`) and loneliness (`loneliness_group`) are **not** 
+Depression (`cesd_lat_shifted`) and loneliness (`lnlys`) are **not**
 included — they are potential mediators on the pathway from partnership to pain, so
 conditioning on them in the TE model would partially block the path of
 interest.
@@ -250,10 +340,18 @@ cat("\n", rep("#", 80), "\n")
 cat("POST-PROCESSING: TOTAL EFFECTS\n")
 cat(rep("#", 80), "\n")
 
-state_order_log_TE <- bind_rows(map(1:n_imputations, function(i) {
-  extract_one(i, "TE", fmLatent_TE$latentFormula, fmLatent_TE$responsesFormula)
-}))
-saveRDS(state_order_log_TE, paste0(models_path, "state_order_log_TE.rds"))
+log_list_TE <- vector("list", n_imputations)
+for (i in seq_len(n_imputations)) {
+  log_list_TE[[i]] <- extract_one(imp = i, 
+                                  label = "TE",
+                                  fm_latent = fmLatent_TE$latentFormula,
+                                  fm_responses = fmLatent_TE$responsesFormula,
+                                  run_all = F,
+                                  out_SE = T)
+  gc(full = T)
+}
+state_order_log_TE <- bind_rows(log_list_TE)
+saveRDS(state_order_log_TE, paste0(summary_path, "state_order_log_TE.rds"))
 cat("\nTE post-processing complete.\n")
 ```
 
@@ -272,10 +370,19 @@ cat("\n", rep("#", 80), "\n")
 cat("POST-PROCESSING: DIRECT EFFECTS\n")
 cat(rep("#", 80), "\n")
 
-state_order_log_DE <- bind_rows(map(1:n_imputations, function(i) {
-  extract_one(i, "DE", fmLatent_DE$latentFormula, fmLatent_DE$responsesFormula)
-}))
-saveRDS(state_order_log_DE, paste0(models_path, "state_order_log_DE.rds"))
+log_list_DE <- vector("list", n_imputations)
+for (i in seq_len(n_imputations)) {
+  log_list_DE[[i]] <- extract_one(imp = i, 
+                                  label = "DE",
+                                  run_all = F,
+                                  out_SE = T,
+                                  fm_latent = fmLatent_DE$latentFormula,
+                                  fm_responses = fmLatent_DE$responsesFormula
+                                  )
+  gc()
+}
+state_order_log_DE <- bind_rows(log_list_DE)
+saveRDS(state_order_log_DE, paste0(summary_path, "state_order_log_DE.rds"))
 cat("\nDE post-processing complete.\n")
 ```
 
@@ -284,7 +391,7 @@ cat("\nDE post-processing complete.\n")
 # 7. State ordering consistency check
 
 Before pooling, we verify that the severity-based reordering assigned the same latent 
-content to the same slot across all 22 imputations. This is a prerequisite for 
+content to the same slot across all 60 imputations. This is a prerequisite for 
 Rubin's rules: pooling averages parameters labelled "State 2 transition 
 coefficient" across imputations, which is only valid if "State 2" refers to 
 the same clinical content in every imputation.
@@ -292,7 +399,7 @@ the same clinical content in every imputation.
 `check_state_ordering()` (defined in `Sources/Paper1_func.R`) assesses
 this in a deterministic way via a **score range overlap test**. 
 For each severity slot (new_state 1–4), it records the minimum and maximum 
-composite score that landed in that slot across the 22 imputations. If the maximum
+composite score that landed in that slot across the 60 imputations. If the maximum
 score in slot *k* exceeds the minimum score in slot *k+1*, the boundaries between 
 those two states are unstable — some imputations assigned higher-severity cases 
 to slot *k* than lower-severity cases assigned to slot *k+1* in other imputations.
@@ -300,15 +407,15 @@ to slot *k* than lower-severity cases assigned to slot *k+1* in other imputation
 Note: `n_unique_orig` in the output table counts how many distinct original lmest 
 labels (1–4) mapped to each severity slot. Because lmest assigns arbitrary integer 
 labels at each fit, we expext that all four labels will appear in each slot across 
-22 imputations — `n_unique_orig = 4`.
+60 imputations — `n_unique_orig = 4`.
 
 If any overlap is detected, `check_state_ordering()` calls `stop()`
 to abort execution before pooling runs.
 
 ```{r ordering-load, eval=TRUE}
 ## loading the state_order_data
-state_order_log_TE <- readRDS(paste0(models_path, "state_order_log_TE.rds"))
-state_order_log_DE <- readRDS(paste0(models_path, "state_order_log_DE.rds"))
+state_order_log_TE <- readRDS(paste0(summary_path, "state_order_log_TE.rds"))
+state_order_log_DE <- readRDS(paste0(summary_path, "state_order_log_DE.rds"))
 ```
 
 ```{r ordering-check, eval=TRUE}
@@ -386,18 +493,18 @@ These chunks save the pooled results to disk. They are set to `eval=FALSE` becau
 they write `.rds` files; results are loaded in Section 8.5.
 
 ```{r pool-run, eval=FALSE}
-pooled_TE <- pool_summaries("TE", n_imputations, models_path)
-pooled_DE <- pool_summaries("DE", n_imputations, models_path)
+pooled_TE <- pool_summaries("TE", n_imputations, summary_path)
+pooled_DE <- pool_summaries("DE", n_imputations, summary_path)
 
-saveRDS(pooled_TE, paste0(models_path, "pooled_TE.rds"))
-saveRDS(pooled_DE, paste0(models_path, "pooled_DE.rds"))
+saveRDS(pooled_TE, paste0(summary_path, "pooled_TE.rds"))
+saveRDS(pooled_DE, paste0(summary_path, "pooled_DE.rds"))
 ```
 
 ## 8.5 Load pooled results
 
 ```{r pool-load, eval=TRUE}
-pooled_TE <- readRDS(paste0(models_path, "pooled_TE.rds"))
-pooled_DE <- readRDS(paste0(models_path, "pooled_DE.rds"))
+pooled_TE <- readRDS(paste0(summary_path, "pooled_TE.rds"))
+pooled_DE <- readRDS(paste0(summary_path, "pooled_DE.rds"))
 ```
 
 ---
@@ -427,10 +534,120 @@ diagnose_barnard_rubin(pooled_DE, "DE")
 
 ---
 
+# 9.5 Model diagnostics across imputations
+
+Entropy, Average Posterior Probability (APP), classification error, and Odds of Correct
+Classification (OCC) are computed per imputation from the smoothed posterior array
+`raw$best_model$V [n × k × TT]` stored in each raw_results file. States are reordered by
+severity before computation so that State 1 = healthiest across all imputations. Results
+are summarised as median (range) across M = 60 imputations.
+
+This resolves the provenance issue of section 2 in `findings_pt4.md`, where these diagnostics were
+previously reported from a single non-imputed model (pt4, out of scope). Values here
+are the pooled-analysis equivalents.
+
+```{r diag-per-imp, eval=FALSE, cache=FALSE}
+compute_diag_from_V <- function(V_rebased, k) {
+  n  <- dim(V_rebased)[1]
+  TT <- dim(V_rebased)[3]
+  eps <- 1e-15
+
+  # Stack waves → [n*TT × k]
+  all_posts   <- do.call(rbind, lapply(seq_len(TT), function(t) V_rebased[, , t]))
+  all_decoded <- apply(all_posts, 1, which.max)
+
+  entropy  <- round(1 + sum(all_posts * log(all_posts + eps)) / (n * TT * log(k)), 4)
+  class_err <- round(1 - mean(apply(all_posts, 1, max)), 4)
+
+  app <- sapply(seq_len(k), function(s) {
+    in_s <- which(all_decoded == s)
+    if (length(in_s) == 0) return(NA_real_)
+    round(mean(all_posts[in_s, s]), 4)
+  })
+
+  pi_j <- colMeans(all_posts)
+  occ  <- round((app / (1 - app)) / (pi_j / (1 - pi_j)), 3)
+
+  list(entropy = entropy, class_err = class_err,
+       app = app, occ = occ, pi_j = round(pi_j, 4))
+}
+
+run_diag_loop <- function(label) {
+  results <- vector("list", n_imputations)
+  for (i in seq_len(n_imputations)) {
+    raw_file <- paste0(models_path, "raw_results_", label, "_imp", i, ".rds")
+    raw      <- readRDS(raw_file)
+    ord      <- Determine_state_ordering(raw$best_model,
+                                         indicator_names   = ordering_indicators,
+                                         indicator_weights = ordering_weights)$severity_order
+    V_reb    <- raw$best_model$V[, ord, , drop = FALSE]
+    results[[i]] <- compute_diag_from_V(V_reb, k = 4)
+    rm(raw); gc(full = TRUE)
+    cat(sprintf("[%s] imp %d done\n", label, i))
+  }
+  results
+}
+
+diag_TE <- run_diag_loop("TE")
+diag_DE <- run_diag_loop("DE")
+saveRDS(list(TE = diag_TE, DE = diag_DE),
+        paste0(summary_path, "model_diagnostics_per_imp.rds"))
+```
+
+```{r diag-summary, eval=TRUE}
+diag_all <- readRDS(paste0(summary_path, "model_diagnostics_per_imp.rds"))
+
+summarise_diag <- function(diag_list, label) {
+  cat(sprintf("\n=== %s — Model diagnostics (M = %d) ===\n\n", label, length(diag_list)))
+
+  entropy   <- sapply(diag_list, `[[`, "entropy")
+  class_err <- sapply(diag_list, `[[`, "class_err")
+
+  cat(sprintf("Entropy       median %.3f  (range %.3f – %.3f)  threshold > 0.80  %s\n",
+              median(entropy), min(entropy), max(entropy),
+              ifelse(median(entropy) >= 0.80, "OK", "BORDERLINE")))
+  cat(sprintf("Class. error  median %.3f  (range %.3f – %.3f)  threshold < 0.30  %s\n\n",
+              median(class_err), min(class_err), max(class_err),
+              ifelse(median(class_err) < 0.30, "OK", "POOR")))
+
+  app_mat <- do.call(rbind, lapply(diag_list, `[[`, "app"))
+  occ_mat <- do.call(rbind, lapply(diag_list, `[[`, "occ"))
+  pi_mat  <- do.call(rbind, lapply(diag_list, `[[`, "pi_j"))
+
+  tbl <- data.frame(
+    State       = paste("State", 1:4),
+    APP_median  = round(apply(app_mat, 2, median), 3),
+    APP_range   = apply(app_mat, 2, function(x)
+                    sprintf("%.3f – %.3f", min(x), max(x))),
+    OCC_median  = round(apply(occ_mat, 2, median), 1),
+    OCC_range   = apply(occ_mat, 2, function(x)
+                    sprintf("%.1f – %.1f", min(x), max(x))),
+    pi_median   = round(apply(pi_mat, 2, median), 3),
+    APP_flag    = ifelse(apply(app_mat, 2, median) >= 0.70, "OK", "< 0.70"),
+    OCC_flag    = ifelse(apply(occ_mat, 2, median) >= 5.0,  "OK", "< 5.0")
+  )
+  knitr::kable(tbl,
+    caption = sprintf(
+      "%s — APP and OCC per state. Thresholds: APP > 0.70, OCC > 5. [Nagin 2010]",
+      label)) |> print()
+
+  cat("\nReferences:\n")
+  cat("Entropy: Clark & Muthén (2009). Relating latent class analysis results to\n")
+  cat("  variables not included in the analysis. Unpublished manuscript.\n")
+  cat("APP / OCC: Nagin DS (2010). Group-based trajectory modeling: an overview.\n")
+  cat("  Current Directions in Psychological Science, 19(2), 65-68.\n")
+}
+
+summarise_diag(diag_all$TE, "TE")
+summarise_diag(diag_all$DE, "DE")
+```
+
+---
+
 # 10. Key results tables
 
 Filtered to the primary exposure (`ssupport6_cat`) and secondary exposures 
-(`cesd_lat_shifted`, `loneliness_group` in DE only), and restricted to EPV ≥ 10.
+(`cesd_lat_shifted`, `lnlys` in DE only), and restricted to EPV ≥ 10.
 
 ```{r key-tables-def, eval=TRUE}
 print_key_tables <- function(pooled, label, EPV_threshold = 10, round = 3) {
@@ -469,13 +686,17 @@ print_key_tables <- function(pooled, label, EPV_threshold = 10, round = 3) {
 ```{r key-tables-run, eval=TRUE}
 print_key_tables(pooled_TE, "TE")
 print_key_tables(pooled_DE, "DE")
+
+# DE mediator coefficients (cesd_lat_shifted, lnlys)
+pooled_DE$initial_states %>% filter(grepl("cesd|lnlys", varname)) %>% kable(digits = 3)
+pooled_DE$transitions   %>% filter(grepl("cesd|lnlys", varname), EPV >= 10) %>% kable(digits = 3)
 ```
 
 ---
 
 # 10.5 Observed transition counts and model-implied probabilities
 
-Descriptive tables pooled across all 22 TE-model imputations. State labels use
+Descriptive tables pooled across all 60 TE-model imputations. State labels use
 the pre-verified severity ordering from `state_order_log_TE.rds` — 
 Here we do not need re-computation of `Determine_state_ordering()` because we done 
 so in the previous phase.
@@ -491,9 +712,9 @@ inferential quantities, not descriptive counts or marginal probabilities).
 uncertainty relative to soft posterior probabilities, but is standard for
 descriptive transition matrices.
 
-```{r trans-matrices, eval=TRUE, cache=TRUE}
+```{r trans-matrices, eval=FALSE}
 # Load pre-verified state ordering
-state_order_log_TE <- readRDS(paste0(models_path, "state_order_log_TE.rds"))
+state_order_log_TE <- readRDS(paste0(summary_path, "state_order_log_TE.rds"))
 
 state_labels_sev <- c(
   "S1: No pain",
@@ -519,6 +740,7 @@ trans_probs_list  <- vector("list", n_imputations)
 for (i in seq_len(n_imputations)) {
   raw     <- readRDS(paste0(models_path, "raw_results_TE_imp", i, ".rds"))
   model   <- raw$best_model
+  rm(raw); gc()
   order_i <- get_order_i(i)
 
   # ── Initial state counts ──────────────────────────────────────────────────
@@ -538,6 +760,8 @@ for (i in seq_len(n_imputations)) {
   tp <- calc_transition_matrix_prob(model)
   trans_probs_list[[i]] <-
     tp[paste0("From State ", order_i), paste0("To State ", order_i)]
+
+  rm(model, ic, tc, tp); gc()
 }
 
 # ── Pool: mean ± SD ──────────────────────────────────────────────────────────
@@ -572,27 +796,35 @@ tp_table  <- matrix(sprintf("%.3f (%.3f)", tp_mean, tp_sd), 4, 4,
                       paste("From", state_labels_sev),
                       paste("To",   state_labels_sev)
                     ))
+
+saveRDS(init_df, paste0(summary_path, "desc1.1_init_State_count_TE.rds"))
+saveRDS(tc_table, paste0(summary_path, "desc1.1_observed_tc_table_TE.rds"))
+saveRDS(tp_table, paste0(summary_path, "desc1.1_implied_tp_table_TE.rds"))
+
 ```
 
 ## Initial state counts
 
 ```{r init-counts-table, eval=TRUE}
+init_df<-readRDS(paste0(summary_path, "desc1.1_init_State_count_TE.rds"))
 kable(init_df,
-      caption = "Initial state membership counts — mean (SD) across 22 imputations")
+      caption = "Initial state membership counts — mean (SD) across 60 imputations")
 ```
 
 ## Observed transition counts
 
 ```{r trans-counts-table, eval=TRUE}
+tc_table<-readRDS(paste0(summary_path, "desc1.1_observed_tc_table_TE.rds"))
 kable(tc_table,
-      caption = "Observed transition counts (Viterbi) — mean (SD) across 22 imputations")
+      caption = "Observed transition counts (Viterbi) — mean (SD) across 60 imputations")
 ```
 
 ## Model-implied transition probabilities
 
 ```{r trans-probs-table, eval=TRUE, cache=TRUE}
+tc_table<-readRDS(paste0(summary_path, "desc1.1_implied_tp_table_TE.rds"))
 kable(tp_table,
-      caption = "Model-implied marginal transition probabilities — mean (SD) across 22 imputations. Averaged over subjects and time points 2:TT from model$PI.")
+      caption = "Model-implied marginal transition probabilities — mean (SD) across 60 imputations. Averaged over subjects and time points 2:TT from model$PI.")
 ```
 
 ---
@@ -632,7 +864,7 @@ varname_labels <- c(
   "ssupport6_catless than supportive partner" = "Less than supportive partner \n vs no partner",
   "ssupport6_catsupportive partner"           = "Supportive partner \n vs no partner",
   "cesd_lat_shifted"                          = "CES-D (continuous)",
-  "loneliness_groupHigh"                      = "High loneliness \n vs not high loneliness"
+  "lnlys"                                     = "Loneliness (continuous)"
 )
 
 state_labels <- c(
