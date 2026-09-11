@@ -19,7 +19,7 @@ library(NbClust)
 library(cluster)
 library(readr)
 
-source("Sources/Paper1_func.R")
+source("~/ELSA-partners/Sources/Paper1_func.R")
 
 Imputed_datasets<-readRDS("~/private_WP5/WP5_data/rds/mice_imputationlong_VH.rds")
 paper1_rds_path<-"~/private_WP5/WP5_data/rds/"
@@ -355,7 +355,7 @@ df_plot<-imputed.df %>% filter(wave == 4 & !is.na(ssupport6_log1p))
 
 ggplot(df_plot, aes(x=ssupport6_log1p)) + 
     geom_histogram(aes(y=after_stat(density)),      # Histogram with density instead of count on y-axis
-                   colour="black", fill="white") +
+                   colour="black", fill="lightblue") +
     #geom_density(alpha=.2, fill="#FF6666")+  # Overlay with transparent density plot
     geom_vline(aes(xintercept=mean(ssupport6_log1p, na.rm=T)), color="red", linetype="dashed", size=1) +
   labs(
@@ -363,6 +363,51 @@ ggplot(df_plot, aes(x=ssupport6_log1p)) +
     caption = "Data source: ELSA, wave 4, SSupport score for respondents with partner"
   ) +
   theme_minimal()
+
+df_plot<-imputed.df %>% filter(wave == 4 & !is.na(ss))
+
+
+ggplot(df_plot, aes(x=expm1(ssupport6_log1p))) + 
+    geom_histogram(colour="black", fill="lightblue") +
+    #geom_density(alpha=.2, fill="#FF6666")+  # Overlay with transparent density plot
+    geom_vline(aes(xintercept=median(expm1(ssupport6_log1p), na.rm=T)), color="red", linetype="dashed", size=1) +
+  labs(
+    title = paste("Distribution of Partner support scores, median line = 1.5 Line (N =", nrow(df_plot),")"),
+    caption = "Data source: ELSA, wave 4, SSupport score for respondents with partner",
+    x = "Spouse support score"
+  ) +
+  theme_minimal()
+
+
+df_plot2<-imputed.df %>% filter(wave == 4)
+                               
+df_plot2<-df_plot2 %>% mutate(
+  ssupport6_cat = case_when(
+        partner == 0  ~ "No-partner",
+        expm1(ssupport6_log1p) <= 1.5         ~ "supportive partner",
+        expm1(ssupport6_log1p) >  1.5         ~ "less than supportive partner",
+        TRUE                     ~ NA_character_
+      ) %>% factor(levels = c( "No-partner",
+                               "supportive partner",
+                               "less than supportive partner")),
+  temp =  case_when(
+        partner == 0  ~ 0,
+        partner == 1  ~ expm1(ssupport6_log1p),
+        TRUE ~ NA_real_
+      )
+)
+
+ggplot(df_plot2, aes(x=ssupport6_cat, y = temp)) + 
+    geom_boxplot(colour="black", fill="lightblue") +
+    geom_hline(aes(yintercept=1.5), color="red", linetype="dashed", size=1) +
+  labs(
+    title = paste("Box plot of the categorical Partner support variable, median line = 1.5 Line (N =", nrow(df_plot2),")"),
+    caption = "Data source: ELSA, wave 4, SSupport score for respondents with partner",
+    x = "Spouse support category",
+    y = "Spouse support score"
+  ) +
+  theme_minimal()
+
 
 ```
 
