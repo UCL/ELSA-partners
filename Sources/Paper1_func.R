@@ -1811,7 +1811,7 @@ init_prob_DAG<-'dag {
 "Initial Health State" [outcome,pos="-0.595,-0.451"]
 "Loneliness BL" [pos="-0.789,-1.024"]
 "MLTC BL" [pos="-0.565,1.503"]
-"Partnership Status BL" [exposure,pos="-1.118,-0.305"]
+"Partnership BL" [exposure,pos="-1.118,-0.305"]
 "Wealth BL" [pos="-1.146,1.437"]
 "Education (lv)" [pos="-1.02,1.600"]
 Age [pos="-0.864,1.539"]
@@ -1819,16 +1819,18 @@ Sex [pos="-0.712,1.522"]
 "Depression BL" -> "Initial Health State"
 "Loneliness BL" -> "Initial Health State"
 "MLTC BL" -> "Initial Health State"
-"MLTC BL" -> "Partnership Status BL"
-"Partnership Status BL" -> "Initial Health State"
+"MLTC BL" -> "Partnership BL"
+"Partnership BL" -> "Initial Health State"
+"Partnership BL" -> "Depression BL"
+"Partnership BL" -> "Loneliness BL"
 "Wealth BL" -> "Initial Health State"
-"Wealth BL" -> "Partnership Status BL"
-"Education (lv)" -> "Partnership Status BL"
+"Wealth BL" -> "Partnership BL"
+"Education (lv)" -> "Partnership BL"
 "Education (lv)" -> "Initial Health State"
 Age -> "Initial Health State"
-Age -> "Partnership Status BL"
+Age -> "Partnership BL"
 Sex -> "Initial Health State"
-Sex -> "Partnership Status BL"
+Sex -> "Partnership BL"
 }
 '
 
@@ -1839,7 +1841,7 @@ Sex -> "Partnership Status BL"
 
 trans_prob_DAG<-'dag {
 "Health State Transitions" [outcome,pos="-0.300,-0.249"]
-"Partnership Status" [exposure,pos="-1.063,-0.647"]
+"Partnership" [exposure,pos="-1.063,-0.647"]
 Age [pos="-0.542,1.466"]
 Depression [pos="-0.550,-1.241"]
 Loneliness [pos="-0.575,-0.913"]
@@ -1847,21 +1849,21 @@ MLTC [pos="-0.295,1.519"]
 Sex [pos="-0.804,1.513"]
 Wealth [pos="-1.067,1.450"]
 "Education (lv)" [pos="-.930,1.600"]
-"Partnership Status" -> "Health State Transitions"
-"Partnership Status" -> Depression
-"Partnership Status" -> Loneliness
+"Partnership" -> "Health State Transitions"
+"Partnership" -> Depression
+"Partnership" -> Loneliness
 Age -> "Health State Transitions"
-Age -> "Partnership Status"
+Age -> "Partnership"
 Depression -> "Health State Transitions"
 "Education (lv)" -> "Health State Transitions"
-"Education (lv)" -> "Partnership Status"
+"Education (lv)" -> "Partnership"
 Loneliness -> "Health State Transitions"
 MLTC -> "Health State Transitions"
-MLTC -> "Partnership Status"
+MLTC -> "Partnership"
 Sex -> "Health State Transitions"
-Sex -> "Partnership Status"
+Sex -> "Partnership"
 Wealth -> "Health State Transitions"
-Wealth -> "Partnership Status"
+Wealth -> "Partnership"
 }
 
 
