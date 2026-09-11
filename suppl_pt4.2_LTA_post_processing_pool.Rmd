@@ -28,6 +28,7 @@ source("Sources/Paper1_func.R")
 rds_path    <- path.expand("~/private_WP5/WP5_data/rds/")
 models_path <- path.expand("~/private_WP5/WP5_data/model_fits/imputations/")
 summary_path<- path.expand("~/private_WP5/WP5_data/model_fits/imputation_summaries/")
+fits_path   <- path.expand("~/private_WP5/WP5_data/model_fits/")
 
 n_imputations <- 60
 ```
@@ -94,6 +95,8 @@ Variables <- c(
 )
 
 one_imp           <- prep_lta_data(mice::complete(updated_mids, 1))
+
+
 latent_state_vars <- c("lvimp_shifted_cat3", "painchr_ext")
 
 TE_initial_prob_vars <- c("Sex_BIN", "raeduc_e", "wealthQ_bin",
@@ -509,7 +512,9 @@ pooled_DE <- readRDS(paste0(summary_path, "pooled_DE.rds"))
 
 ---
 
-# 9. Barnard-Rubin df diagnostic
+# 9. Diagnostics
+
+## 9.1 Barnard-Rubin df diagnostic
 
 This section is essentially a sensitivity analysis that checks whether the finite-df 
 Barnard-Rubin correction materially changes significance conclusions relative to 
@@ -534,7 +539,7 @@ diagnose_barnard_rubin(pooled_DE, "DE")
 
 ---
 
-# 9.5 Model diagnostics across imputations
+## 9.2 Model diagnostics across imputations
 
 Entropy, Average Posterior Probability (APP), classification error, and Odds of Correct
 Classification (OCC) are computed per imputation from the smoothed posterior array
@@ -542,6 +547,12 @@ Classification (OCC) are computed per imputation from the smoothed posterior arr
 severity before computation so that State 1 = healthiest across all imputations. Results
 are summarised as median (range) across M = 60 imputations.
 
+Diagnostics here are computed by **stacking posteriors across all three waves* prior to aggregation, 
+which implies a conservative estimate of classification quality relative to using a 
+cross-sectional (wave-specific) reference.
+
+
+clark2009relating
 This resolves the provenance issue of section 2 in `findings_pt4.md`, where these diagnostics were
 previously reported from a single non-imputed model (pt4, out of scope). Values here
 are the pooled-analysis equivalents.
@@ -640,6 +651,190 @@ summarise_diag <- function(diag_list, label) {
 
 summarise_diag(diag_all$TE, "TE")
 summarise_diag(diag_all$DE, "DE")
+
+# Consolidated TE + DE table (supplement-ready)
+print_diagnostics_table <- function(diag_te, diag_de,
+  state_labels = c("State 1 — no pain, no impact",
+                   "State 2 — pain, no functional impairment",
+                   "State 3 — functional impairment, no CP",
+                   "State 4 — HICP")) {
+
+  fmt_range <- function(mat, col_idx, digits)
+    sprintf(paste0("%.", digits, "f (%.", digits, "f – %.", digits, "f)"),
+            apply(mat, 2, median)[col_idx],
+            apply(mat, 2, min)[col_idx],
+            apply(mat, 2, max)[col_idx])
+
+  scalar_row <- function(dl, fn, digits) {
+    v <- sapply(dl, fn)
+    sprintf(paste0("%.", digits, "f (%.", digits, "f – %.", digits, "f)"),
+            median(v), min(v), max(v))
+  }
+
+  app_te  <- do.call(rbind, lapply(diag_te, `[[`, "app"))
+  occ_te  <- do.call(rbind, lapply(diag_te, `[[`, "occ"))
+  pi_te   <- do.call(rbind, lapply(diag_te, `[[`, "pi_j"))
+  app_de  <- do.call(rbind, lapply(diag_de, `[[`, "app"))
+  occ_de  <- do.call(rbind, lapply(diag_de, `[[`, "occ"))
+  pi_de   <- do.call(rbind, lapply(diag_de, `[[`, "pi_j"))
+
+  flag <- function(val, thr, dir = "above") {
+    if (dir == "above") ifelse(val >= thr, "OK", sprintf("< %.2f", thr))
+    else                ifelse(val <= thr, "OK", sprintf("> %.2f", thr))
+  }
+
+  ent_te  <- sapply(diag_te, `[[`, "entropy");  ent_de  <- sapply(diag_de, `[[`, "entropy")
+  cerr_te <- sapply(diag_te, `[[`, "class_err"); cerr_de <- sapply(diag_de, `[[`, "class_err")
+
+  rows <- rbind(
+    data.frame(Criterion = "**Entropy (E)**",
+               TE = scalar_row(diag_te, function(x) x$entropy, 3),
+               DE = scalar_row(diag_de, function(x) x$entropy, 3),
+               Threshold = "> 0.80",
+               TE_flag = flag(median(ent_te),  0.80),
+               DE_flag = flag(median(ent_de),  0.80)),
+    data.frame(Criterion = "**Classification error**",
+               TE = scalar_row(diag_te, function(x) x$class_err, 3),
+               DE = scalar_row(diag_de, function(x) x$class_err, 3),
+               Threshold = "< 0.30",
+               TE_flag = flag(median(cerr_te), 0.30, "below"),
+               DE_flag = flag(median(cerr_de), 0.30, "below")),
+    do.call(rbind, lapply(1:4, function(s)
+      data.frame(Criterion = paste0("APP — ", state_labels[s]),
+                 TE = fmt_range(app_te, s, 3), DE = fmt_range(app_de, s, 3),
+                 Threshold = "> 0.70",
+                 TE_flag = flag(median(app_te[, s]), 0.70),
+                 DE_flag = flag(median(app_de[, s]), 0.70)))),
+    do.call(rbind, lapply(1:4, function(s)
+      data.frame(Criterion = paste0("OCC — ", state_labels[s]),
+                 TE = fmt_range(occ_te, s, 1), DE = fmt_range(occ_de, s, 1),
+                 Threshold = "> 5.0",
+                 TE_flag = flag(median(occ_te[, s]), 5.0),
+                 DE_flag = flag(median(occ_de[, s]), 5.0)))),
+    do.call(rbind, lapply(1:4, function(s)
+      data.frame(Criterion = paste0("π̂ — ", state_labels[s]),
+                 TE = sprintf("%.3f", median(pi_te[, s])),
+                 DE = sprintf("%.3f", median(pi_de[, s])),
+                 Threshold = "—", TE_flag = "—", DE_flag = "—")))
+  )
+
+  knitr::kable(rows,
+    col.names = c("Criterion", "TE median (range)", "DE median (range)",
+                  "Threshold", "TE", "DE"),
+    caption = paste0(
+      "Model diagnostics pooled across M=60 imputations. ",
+      "Values are median (range). ",
+      "Entropy: Clark & Muthen (2009); APP / OCC / classification error: Nagin (2010). ",
+      "Estimated prevalence (pi-hat) = mean posterior probability of state membership ",
+      "across all subjects and waves."))
+}
+
+print_diagnostics_table(diag_all$TE, diag_all$DE)
+
+
+```
+
+---
+
+## 9.3 Model comparison: TE vs DE (pooled likelihood ratio test)
+
+The TE model is nested within the DE model: DE adds `cesd_lat_shifted` and
+`lnlys` to both the initial-state and transition equations, with every other
+term identical. Within each imputation both models are fitted to the *same*
+completed dataset, so the likelihood ratio statistic is well defined per
+imputation and the 60 statistics can be pooled.
+
+The LR statistics are combined with the D2 method for pooling test statistics
+across multiply imputed datasets (Li, Meng, Raghunathan & Rubin, 1991),
+implemented in `miceadds::micombine.chisquare()`. Because DE adds only two
+covariates while the between-imputation variance of the LR statistic is small,
+D2 lands close to the average LR per degree of freedom.
+
+**Interpretation.** This test asks whether depression and loneliness carry
+explanatory value for the latent state process; it is *not* a model-selection
+criterion for the primary estimand. The total effect of partnership status
+remains the quantity of interest (Section 8.2 of `METHODS.md`), and the DE model
+is a secondary specification. A pseudo-R-squared is not defined for latent
+Markov models of this form and is deliberately not reported: entropy R-squared
+(Section 9.2) measures class separation, not covariate explanatory value, and
+should not be substituted for one.
+
+```{r lrt-te-de, eval=TRUE}
+# np and n are structural (functions of k and the design matrices) and therefore
+# identical across imputations; they are read once from the imp-1 fits.
+fit_TE <- readRDS(paste0(fits_path, "TotalEffects.rds"))
+fit_DE <- readRDS(paste0(fits_path, "DirectEffects.rds"))
+np_TE  <- fit_TE$np
+np_DE  <- fit_DE$np
+n_subj <- fit_TE$n
+stopifnot(fit_DE$n == n_subj)
+rm(fit_TE, fit_DE); gc(full = TRUE)
+
+df_LRT <- np_DE - np_TE
+
+# Structural check on the df: each added covariate contributes (k-1) initial-state
+# logits plus k*(k-1) transition logits. Surfaced as an error, never assumed.
+k_states  <- 4
+n_added   <- 2                                   # cesd_lat_shifted, lnlys
+df_expect <- n_added * ((k_states - 1) + k_states * (k_states - 1))
+if (df_LRT != df_expect) {
+  stop(sprintf("LRT df mismatch: np difference is %d but the design implies %d.",
+               df_LRT, df_expect))
+}
+
+# lls_consistency is built in the `inspect-flagged` chunk; re-read if running
+# this chunk standalone.
+if (!exists("lls_consistency")) {
+  .lls <- readRDS(paste0(summary_path, "TE_DE_all_best_LLs.rds"))
+  lls_consistency <- data.frame(lls_TE = .lls$TE$lls, lls_DE = .lls$DE$lls)
+  rm(.lls)
+}
+
+# Per-imputation LR statistics and information criteria.
+# LMest identities: aic = -2*lk + 2*np ; bic = -2*lk + np*log(n)
+lr_vec <- 2 * (lls_consistency$lls_DE - lls_consistency$lls_TE)
+aic_TE <- -2 * lls_consistency$lls_TE + 2 * np_TE
+aic_DE <- -2 * lls_consistency$lls_DE + 2 * np_DE
+bic_TE <- -2 * lls_consistency$lls_TE + np_TE * log(n_subj)
+bic_DE <- -2 * lls_consistency$lls_DE + np_DE * log(n_subj)
+
+fmt_msd <- function(v) sprintf("%.1f (%.1f)  [%.1f, %.1f]",
+                               mean(v), sd(v), min(v), max(v))
+
+lrt_tbl <- data.frame(
+  Quantity = c("log-likelihood, TE", "log-likelihood, DE",
+               sprintf("LR statistic (df = %d)", df_LRT),
+               "AIC, TE", "AIC, DE", "delta AIC (DE - TE)",
+               "BIC, TE", "BIC, DE", "delta BIC (DE - TE)"),
+  Value = c(fmt_msd(lls_consistency$lls_TE), fmt_msd(lls_consistency$lls_DE),
+            fmt_msd(lr_vec),
+            fmt_msd(aic_TE), fmt_msd(aic_DE), fmt_msd(aic_DE - aic_TE),
+            fmt_msd(bic_TE), fmt_msd(bic_DE), fmt_msd(bic_DE - bic_TE)),
+  check.names = FALSE)
+
+kable(lrt_tbl, row.names = FALSE,
+      col.names = c("Quantity", "Mean (SD) [range]"),
+      caption = sprintf(
+        paste("TE vs DE model comparison across M = %d imputations",
+              "(n = %d subjects; np: %d to %d)."),
+        n_imputations, n_subj, np_TE, np_DE)) |> print()
+
+# Pooled test statistic (D2)
+if (requireNamespace("miceadds", quietly = TRUE)) {
+  d2 <- miceadds::micombine.chisquare(dk = lr_vec, df = df_LRT, display = FALSE)
+  cat(sprintf("\nPooled LRT (D2): D = %.2f, df = (%d, %.0f), p = %.3g\n",
+              d2["D"], df_LRT, d2["df2"], d2["p"]))
+} else {
+  cat("\nmiceadds not installed - pooled D2 statistic not computed.\n")
+}
+
+# Robustness: is the conclusion carried by every imputation, or by the average?
+crit <- qchisq(0.95, df_LRT)
+cat(sprintf("Imputations with LR > chisq(%d) 5%% critical value (%.1f): %d / %d\n",
+            df_LRT, crit, sum(lr_vec > crit), length(lr_vec)))
+cat(sprintf("DE favoured by AIC in %d / %d imputations; by BIC in %d / %d.\n",
+            sum(aic_DE < aic_TE), length(lr_vec),
+            sum(bic_DE < bic_TE), length(lr_vec)))
 ```
 
 ---
@@ -690,6 +885,62 @@ print_key_tables(pooled_DE, "DE")
 # DE mediator coefficients (cesd_lat_shifted, lnlys)
 pooled_DE$initial_states %>% filter(grepl("cesd|lnlys", varname)) %>% kable(digits = 3)
 pooled_DE$transitions   %>% filter(grepl("cesd|lnlys", varname), EPV >= 10) %>% kable(digits = 3)
+```
+
+```{r paper-tables-def, eval=TRUE}
+# print_paper_table(pooled, label, EPV_min, digits)
+#
+# Paper-ready covariate tables: all predictors, paper-relevant columns only.
+# Columns: varname, State/Transition, log-OR, SE, 95% CI, p, Signif.
+# CI uses t(nu_BR) critical value. Separated coefficients marked with dagger (†).
+# Rows with EPV < EPV_min excluded; rows with 10 <= EPV < EPV_min marked with ‡.
+print_paper_table <- function(pooled, label, EPV_min = 20, digits = 3) {
+
+  fmt <- function(df, group_col, caption_str) {
+    df %>%
+      filter(EPV >= 10) %>%
+      mutate(
+        varname = case_when(
+          Sep_Flag != "OK" ~ paste0(varname, "†"),
+          TRUE             ~ varname
+        ),
+        log_OR  = round(Q_bar,    digits),
+        CI      = sprintf(paste0("[%.", digits, "f, %.", digits, "f]"),
+                          Q_bar - qt(0.975, df = nu_BR) * SE_pool,
+                          Q_bar + qt(0.975, df = nu_BR) * SE_pool),
+        SE      = round(SE_pool,  digits),
+        p       = round(p_pool,   3),
+        EPV     = round(EPV,      1),
+        fmi     = round(fmi,      3),
+        nu_BR   = round(nu_BR,    0)
+      ) %>%
+      arrange(!!sym(group_col), varname) %>%
+      select(varname, !!sym(group_col), log_OR, CI, SE, p, EPV, Signif, fmi, nu_BR) %>%
+      knitr::kable(
+        col.names = c("Predictor", group_col,
+                      "log-OR", "95% CI", "SE", "p",
+                      "EPV", "", "FMI", "nu_BR"),
+        caption   = caption_str)
+  }
+
+  cat(sprintf("\n=== %s — FULL COVARIATE TABLES (paper-ready) ===\n", label))
+  cat("† complete/near-complete separation — SE unreliable.\n\n")
+
+  cat("\n-- Initial state probabilities (all covariates) --\n")
+  fmt(pooled$initial_states, "State",
+      sprintf("%s — initial state probabilities, all predictors (M = 60; reference: State 1, no-partner)", label)) |>
+    print()
+
+  cat("\n-- Transitions (all covariates, EPV >= 10) --\n")
+  fmt(pooled$transitions, "Transition",
+      sprintf("%s — state transition log-ORs, all predictors (M = 60)", label)) |>
+    print()
+}
+```
+
+```{r paper-tables-run, eval=TRUE}
+print_paper_table(pooled_TE, "TE")
+print_paper_table(pooled_DE, "DE")
 ```
 
 ---
@@ -822,7 +1073,7 @@ kable(tc_table,
 ## Model-implied transition probabilities
 
 ```{r trans-probs-table, eval=TRUE, cache=TRUE}
-tc_table<-readRDS(paste0(summary_path, "desc1.1_implied_tp_table_TE.rds"))
+tp_table <- readRDS(paste0(summary_path, "desc1.1_implied_tp_table_TE.rds"))
 kable(tp_table,
       caption = "Model-implied marginal transition probabilities — mean (SD) across 60 imputations. Averaged over subjects and time points 2:TT from model$PI.")
 ```
@@ -863,24 +1114,32 @@ recovery_transitions <- c("4 -> 1", "4 -> 2", "4 -> 3")
 varname_labels <- c(
   "ssupport6_catless than supportive partner" = "Less than supportive partner \n vs no partner",
   "ssupport6_catsupportive partner"           = "Supportive partner \n vs no partner",
-  "cesd_lat_shifted"                          = "CES-D (continuous)",
-  "lnlys"                                     = "Loneliness (continuous)"
+  "cesd_lat_shifted"                          = "CES-D (depression)",
+  "lnlys"                                     = "UCLA (loneliness)"
+)
+
+# y-axis order for plots: bottom → top (ggplot2 maps first level to bottom)
+varname_order <- c(
+  "CES-D (depression)",
+  "UCLA (loneliness)",
+  "Less than supportive partner \n vs no partner",
+  "Supportive partner \n vs no partner"
 )
 
 state_labels <- c(
-  "State 1" = "No pain, No impact on functioning",
-  "State 2" = "AP or CP, no high-impact \n vs No pain, no impact",
-  "State 3" = "NO CP, high-impact \n vs No pain, no impact",
-  "State 4" = "HICP vs \nNo pain, no impact"
+  "State 1" = " No pain, no impact",
+  "State 2" = "State 2 \n vs No pain, no impact",
+  "State 3" = "State 3 \n vs No pain, no impact",
+  "State 4" = "State 4 \n vs No pain, no impact"
 )
 
 state_caption <- str_wrap(paste(
-  "Latent pain states — State 1: no pain and no functional limitations;",
-  "State 2: acute or chronic pain without high-impact limitations;",
-  "State 3: high-impact limitations without chronic pain;",
-  "State 4: high-impact chronic pain (HICP).",
+  "Latent pain states — State 1: no pain, no detectable functional impact;",
+  "State 2: Pain with no detectable functional impact;",
+  "State 3: High level of functional impact without CP;",
+  "State 4: High Impact Chronic Pain (HICP).",
   "CES-D and loneliness included in the direct effects (DE) model only.",
-  "Estimates with EPV < 10 excluded. Error bars: 95% CI (Barnard-Rubin df)."
+  "Estimates with EPV < 20 excluded. Error bars: 95% CI (Barnard-Rubin df)."
 ), width = 100)
 
 plot_theme <- theme_minimal(base_size = 11) +
@@ -895,11 +1154,12 @@ init_combined <- bind_rows(
   pooled_DE$initial_states %>% mutate(Model = "DE")
 ) %>%
   filter(EPV >= EPV_PLOT_THRESHOLD) %>%
-  filter(grepl("^ssu", varname) | grepl("^loneli", varname) | grepl("^cesd", varname)) %>%
+  filter(grepl("^State 2", State)|grepl("^State 4", State)) %>%
+  filter(grepl("^ssu", varname) | grepl("^lnlys", varname) | grepl("^cesd", varname)) %>%
   mutate(
     CI_lo   = Q_bar - qt(0.975, df = nu_BR) * SE_pool,
     CI_hi   = Q_bar + qt(0.975, df = nu_BR) * SE_pool,
-    varname = recode(varname, !!!varname_labels),
+    varname = factor(recode(varname, !!!varname_labels), levels = varname_order),
     State   = recode(State,   !!!state_labels)
   )
 
@@ -908,11 +1168,13 @@ trans_combined <- bind_rows(
   pooled_DE$transitions %>% mutate(Model = "DE")
 ) %>%
   filter(EPV >= EPV_PLOT_THRESHOLD) %>%
-  filter(grepl("^ssu", varname) | grepl("^loneli", varname) | grepl("^cesd", varname)) %>%
+  filter(grepl("^ssu", varname) | grepl("^lnlys", varname) | grepl("^cesd", varname)) %>%
+  filter(grepl("1 -> 2",Transition)|grepl("2 -> 4",Transition)) %>%
   mutate(
     CI_lo     = Q_bar - qt(0.975, df = nu_BR) * SE_pool,
     CI_hi     = Q_bar + qt(0.975, df = nu_BR) * SE_pool,
-    varname   = recode(varname, !!!varname_labels),
+    varname   = factor(recode(varname, !!!varname_labels), levels = varname_order),
+    Transition = factor(Transition, levels = c("1 -> 2", "2 -> 4", "1 -> 3", "3 -> 1")),
     Direction = case_when(
       Transition %in% hicp_transitions     ~ "Toward HICP",
       Transition %in% recovery_transitions ~ "Recovery from HICP",
