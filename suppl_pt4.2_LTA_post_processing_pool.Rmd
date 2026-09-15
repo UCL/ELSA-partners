@@ -1108,44 +1108,45 @@ for the main results interpretation.
 
 ```{r plot-config, eval=TRUE}
 
-hicp_transitions     <- c("1 -> 2", "1 -> 3", "1 -> 4", "2 -> 4", "3 -> 4")
-recovery_transitions <- c("4 -> 1", "4 -> 2", "4 -> 3")
 
 varname_labels <- c(
   "ssupport6_catless than supportive partner" = "Less than supportive partner \n vs no partner",
   "ssupport6_catsupportive partner"           = "Supportive partner \n vs no partner",
-  "cesd_lat_shifted"                          = "CES-D (depression)",
-  "lnlys"                                     = "UCLA (loneliness)"
+  "cesd_lat_shifted"                          = "Depression (CES-D)",
+  "lnlys"                                     = "Loneliness (UCLA)"
 )
 
 # y-axis order for plots: bottom → top (ggplot2 maps first level to bottom)
 varname_order <- c(
-  "CES-D (depression)",
-  "UCLA (loneliness)",
+  "Loneliness (UCLA)",
+  "Depression (CES-D)",
   "Less than supportive partner \n vs no partner",
   "Supportive partner \n vs no partner"
 )
 
 state_labels <- c(
-  "State 1" = " No pain, no impact",
-  "State 2" = "State 2 \n vs No pain, no impact",
+  "State 1" = "No pain, no impact",
+  "State 2" = "No/low impact pain \n vs No pain, no impact",
   "State 3" = "State 3 \n vs No pain, no impact",
-  "State 4" = "State 4 \n vs No pain, no impact"
+  "State 4" = "High Impact CP \n vs No pain, no impact"
 )
 
 state_caption <- str_wrap(paste(
   "Latent pain states — State 1: no pain, no detectable functional impact;",
-  "State 2: Pain with no detectable functional impact;",
+  "State 2: Pain with no/low impact;",
   "State 3: High level of functional impact without CP;",
   "State 4: High Impact Chronic Pain (HICP).",
   "CES-D and loneliness included in the direct effects (DE) model only.",
   "Estimates with EPV < 20 excluded. Error bars: 95% CI (Barnard-Rubin df)."
 ), width = 100)
 
-plot_theme <- theme_minimal(base_size = 11) +
+plot_theme <- theme_minimal(base_size = 12) +
   theme(legend.position  = "bottom",
-        plot.caption      = element_text(hjust = 0, size = 8),
-        strip.text.y      = element_text(angle = 0))
+        plot.caption     = element_text(hjust = 0, size = 9),
+        strip.text       = element_text(size = 11, angle = 0),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(size = 11),
+        panel.spacing.x   = unit(1.5, "lines"))
 ```
 
 ```{r plot-data-prep, eval=TRUE}
@@ -1160,7 +1161,7 @@ init_combined <- bind_rows(
     CI_lo   = Q_bar - qt(0.975, df = nu_BR) * SE_pool,
     CI_hi   = Q_bar + qt(0.975, df = nu_BR) * SE_pool,
     varname = factor(recode(varname, !!!varname_labels), levels = varname_order),
-    State   = recode(State,   !!!state_labels)
+    State   = factor(recode(State,   !!!state_labels), levels = unname(state_labels))
   )
 
 trans_combined <- bind_rows(
@@ -1174,13 +1175,8 @@ trans_combined <- bind_rows(
     CI_lo     = Q_bar - qt(0.975, df = nu_BR) * SE_pool,
     CI_hi     = Q_bar + qt(0.975, df = nu_BR) * SE_pool,
     varname   = factor(recode(varname, !!!varname_labels), levels = varname_order),
-    Transition = factor(Transition, levels = c("1 -> 2", "2 -> 4", "1 -> 3", "3 -> 1")),
-    Direction = case_when(
-      Transition %in% hicp_transitions     ~ "Toward HICP",
-      Transition %in% recovery_transitions ~ "Recovery from HICP",
-      Transition == "3 -> 1"               ~ "functioning Improvement",
-      TRUE                                  ~ "Maintenance"
-    )
+    Transition = factor(Transition, levels = c("1 -> 2", "2 -> 4"), labels = c("No pain & no impact → No/low impact pain",
+                                                                               "No/low impact pain → High impact chronic Pain"))
   )
 ```
 
@@ -1205,12 +1201,11 @@ print(p_init)
 
 ```{r fig2-trans, eval=TRUE, fig.width=12, fig.height=10}
 p_trans <- trans_combined %>%
-  filter(Direction != "Maintenance") %>%
   ggplot(aes(x = Q_bar, y = varname, colour = Model,
              xmin = CI_lo, xmax = CI_hi)) +
   geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
   geom_pointrange(position = position_dodge(width = 0.3), size = 0.4, linewidth = .6) +
-  facet_grid(Transition ~ Direction, scales = "free_y", space = "free_y") +
+  facet_wrap(~ Transition, nrow = 1)+
   labs(title   = "Transitions — pooled log-ORs (TE vs DE)",
        x       = "Log-OR (95% CI)", y = NULL, colour = "Model",
        caption = state_caption) +
