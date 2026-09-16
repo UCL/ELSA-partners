@@ -1870,6 +1870,40 @@ Wealth -> "Partnership"
 
 '
 
+# paper_DAG — display-only graph for the manuscript figure.
+# init_prob_DAG and trans_prob_DAG are structurally identical: 15 edges each,
+# indistinguishable once the node labels are normalised. The paper therefore
+# carries a single DAG figure. Both objects above are retained because
+# draw_dags.R verifies each fitted model's adjustment set against its own graph,
+# and because the node names record the timing that the figure cannot show.
+paper_DAG <- 'dag {
+"Pain state / transition" [outcome,pos="-0.300,-0.249"]
+"Partnership" [exposure,pos="-1.063,-0.647"]
+Age [pos="-0.542,1.466"]
+Depression [pos="-0.550,-1.241"]
+Loneliness [pos="-0.575,-0.913"]
+MLTC [pos="-0.295,1.519"]
+Sex [pos="-0.804,1.513"]
+Wealth [pos="-1.067,1.450"]
+"Education (lv)" [pos="-.930,1.600"]
+"Partnership" -> "Pain state / transition"
+"Partnership" -> Depression
+"Partnership" -> Loneliness
+Age -> "Pain state / transition"
+Age -> "Partnership"
+Depression -> "Pain state / transition"
+"Education (lv)" -> "Pain state / transition"
+"Education (lv)" -> "Partnership"
+Loneliness -> "Pain state / transition"
+MLTC -> "Pain state / transition"
+MLTC -> "Partnership"
+Sex -> "Pain state / transition"
+Sex -> "Partnership"
+Wealth -> "Pain state / transition"
+Wealth -> "Partnership"
+}'
+
+
 ################################################################################
 ################ POST-PROCESSING POOLING FUNCTIONS (pt4.2)
 ################################################################################
