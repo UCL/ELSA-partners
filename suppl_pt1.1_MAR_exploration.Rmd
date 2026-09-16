@@ -21,7 +21,7 @@ library(readr)      # file I/O
 library(mice)       # multiple imputation; mice::complete() for completed datasets
 library(patchwork)  # combining ggplot panels
 library(ggrepel)    # non-overlapping labels on ggplot (geom_label_repel)
-library(broom)      # tidy() for model output (missingness logistic regressions)
+library(geepack)    # GEE with cluster-robust SEs (missingness models, 3 rows/person)
 
 source("~/ELSA-partners/Sources/Paper1_func.R")
 
@@ -258,14 +258,14 @@ Missingdata_long <- Missingdata_wide %>%
 ```
 
 
-```{r missingness-overview, fig.width=12, fig.height=6}
+```{r missingness-overview, fig.width=12, fig.height=6, eval=FALSE}
 # Overall missingness heatmap
 vis_miss(Missingdata_long) +
   labs(title = "Missingness map — long format (waves 4–6)",
        caption = "Note: ssupport6_log1p includes structural missingness (partner==0 never collected by design); conditional plot follows.")
 ```
 
-```{r missingness-by-variable, fig.width=8, fig.height=6}
+```{r missingness-by-variable, fig.width=8, fig.height=6, eval=FALSE}
 # ssupport6_log1p has structural missingness: partner==0 cases are never
 # collected and never imputed by design. Showing it alongside other variables
 # inflates its apparent % missing. Exclude it here; its conditional missingness
@@ -274,7 +274,7 @@ p1<-gg_miss_var(Missingdata_long %>% select(-ssupport6_log1p), show_pct = TRUE) 
   labs(title = "% missing per variable (8014 subjects over 3 waves, tot N rows = 24042)")
 ```
 
-```{r missingness-ssupport-conditional, fig.width=8, fig.height=3}
+```{r missingness-ssupport-conditional, fig.width=8, fig.height=3, eval=FALSE}
 # ssupport6_log1p: % missing among partner==1 only (the population for whom
 # it was collected)
 p2<-gg_miss_var(Missingdata_long %>% filter(partner == 1) %>% select(ssupport6_log1p),
@@ -370,30 +370,52 @@ models predicting the missingness indicator of each key variable from
 observed covariates. Significant predictors support MAR (missingness is
 explainable from observed data) rather than MCAR.
 
-Note: logistic models below are fitted on the long-format dataset (3 rows
-per person). Standard errors are not cluster-adjusted; this analysis is
-exploratory and is not reported in the paper.
+Models are fitted on the long-format dataset (3 rows per person), so
+standard errors are clustered by participant using generalised estimating
+equations with an exchangeable working correlation; treating the three
+rows as independent would understate the standard errors.
 
-We focus on the two variables with the highest expected FMI:
-`ssupport6_log1p` (among partnered participants only, where imputation
-was attempted) and `painchr_ext`. `lvimp_shifted` was complete and
-requires no MAR assessment.
+We focus on `ssupport6_log1p`, the exposure with the highest expected FMI
+(among partnered participants only, where imputation was attempted).
+`lvimp_shifted` was complete and requires no MAR assessment.
+`painchr_ext` was 0.6-1.6% missing per wave; its missingness model is
+retained in the source but not reported, because complete separation on
+partnership status makes the estimates uninterpretable.
 
 ```{r mar-helpers}
 # Returns a tidy logistic regression of R(missing) ~ predictors
 # Works on the raw (pre-imputation) data.
-missingness_logit <- function(data, outcome_var, predictor_vars) {
-  R <- as.integer(is.na(data[[outcome_var]]))
-  # Drop predictors that are themselves completely missing in this subset
+missingness_logit <- function(data, outcome_var, predictor_vars,
+                              id_var = "idauniq") {
+  data$R <- as.integer(is.na(data[[outcome_var]]))
   available_preds <- predictor_vars[
     sapply(predictor_vars, function(v) v %in% names(data) &&
              mean(is.na(data[[v]])) < 1)
   ]
   fml <- as.formula(paste("R ~", paste(available_preds, collapse = " + ")))
-  fit <- glm(fml, data = data, family = binomial)
-  broom::tidy(fit, exponentiate = TRUE, conf.int = TRUE) %>%
-    filter(term != "(Intercept)") %>%
-    mutate(outcome = outcome_var, .before = 1)
+
+  # geeglm cannot align an externally supplied id vector with the rows that
+  # na.action drops for missing predictors, so restrict to complete cases
+  # first (this is what glm did implicitly). Clusters must also be contiguous.
+  stopifnot(id_var %in% names(data))
+  keep <- stats::complete.cases(data[, c("R", available_preds, id_var)])
+  d    <- data[keep, , drop = FALSE]
+  d    <- d[order(d[[id_var]]), ]
+
+  fit <- geepack::geeglm(fml, data = d, family = binomial,
+                         id = d[[id_var]], corstr = "exchangeable")
+
+  co <- summary(fit)$coefficients
+  res <- data.frame(
+    outcome   = outcome_var,
+    term      = rownames(co),
+    estimate  = exp(co[, "Estimate"]),
+    conf.low  = exp(co[, "Estimate"] - 1.96 * co[, "Std.err"]),
+    conf.high = exp(co[, "Estimate"] + 1.96 * co[, "Std.err"]),
+    p.value   = co[, "Pr(>|W|)"],
+    row.names = NULL
+  )
+  res[res$term != "(Intercept)", ]
 }
 ```
 
@@ -414,7 +436,7 @@ knitr::kable(mar_ss %>% select(outcome, term, estimate, conf.low, conf.high, p.v
              caption = "Predictors of P(ssupport6_log1p missing) among partner==1 [OR, 95% CI]")
 ```
 
-```{r mar-pain-lvimp}
+```{r mar-pain-lvimp, eval=FALSE}
 preds_out <- c("partner", "cesd_lat_shifted", "MLTC", "lnlys",
                "nettotw_bu_s_log", "raagey", "ragender", "raeduc_e", "wave")
 
@@ -499,7 +521,7 @@ plot_br <- function(mids_obj, var, ps, title, subset_rows = NULL) {
 }
 ```
 
-```{r br-painchr, fig.width=7, fig.height=4}
+```{r br-painchr, fig.width=7, fig.height=4, eval=FALSE}
 R_pain <- as.integer(is.na(imp_1$data$painchr_ext))
 
 ps_pain <- propensity_scores(
@@ -536,12 +558,6 @@ plot_br(imp_1, "ssupport6_log1p", ps_ss,
 ---
 
 # Summary
-
-| Variable | Pre-imputation MAR evidence | Post-imputation B&R |
-|---|---|---|
-| `ssupport6_log1p` | See table above (partner==1 subset) | See plot above |
-| `painchr_ext` | See table above | See plot above |
-| `lvimp_shifted` | Complete — no missingness; MAR test not applicable | Complete — no propensity plot needed |
 
 Interpret plots: if MAR holds, filled (imputed) and open (observed)
 circles should overlap within propensity score bands, with no systematic
