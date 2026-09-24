@@ -1062,12 +1062,27 @@ kable(init_df,
       caption = "Initial state membership counts — mean (SD) across 60 imputations")
 ```
 
-## Observed transition counts
+## Observed transition counts and SD
 
 ```{r trans-counts-table, eval=TRUE}
 tc_table<-readRDS(paste0(summary_path, "desc1.1_observed_tc_table_TE.rds"))
 kable(tc_table,
       caption = "Observed transition counts (Viterbi) — mean (SD) across 60 imputations")
+```
+
+### Obseved transitions %
+
+```{r}
+tc_counts    <- matrix(as.numeric(sub("^([0-9.]+).*", "\\1", tc_table)), 4, 4)
+  tc_pct       <- 100 * tc_counts / rowSums(tc_counts)
+ 
+  tc_table_pct <- matrix(sprintf("%.1f", tc_pct), 4, 4,
+                         dimnames = dimnames(tc_table))
+ 
+  kable(tc_table_pct,
+        caption = paste("Observed transitions (Viterbi) — row percentages,",
+                        "mean across 60 imputations. Rows sum to 100;",
+                        "percentages are of person-intervals originating in each state."))
 ```
 
 ## Model-implied transition probabilities
