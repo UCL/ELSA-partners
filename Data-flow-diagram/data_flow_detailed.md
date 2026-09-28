@@ -165,14 +165,14 @@ flowchart TD
 | Stage | File | Key output |
 |---|---|---|
 | 1.2 | `Measurement_invariance_IRT.Rmd` + `Meas.Inv.IRTscoreExtraction.R` | `impactEstimates2-8_partialScalar.rds` |
-| 1 | `suppl_pt1_Data_prep.Rmd` | `H_elsa_w4_6.rds` ✅ clean w4–6 dataset (n = 8,014) |
+| 1 | `suppl_pt1_Data_prep.Rmd` | `H_elsa_w4_6.rds`clean w4–6 dataset (n = 8,014) |
 | 1.1 | `suppl_pt1.1_MAR_exploration.Rmd` | `output/supplementary_MAR.docx` (Supplementary Material 1.1) |
 | 2 | `suppl_pt2_IMPUTATION_MICE_long.Rmd` | `mice_imputationlong_VH.rds` (M = 60) |
-| 2.1 | `suppl_pt2.1_DERIVED VARIABLES_VH.Rmd` | `mice_updatedMIDS_VH.rds` ✅ final analysis dataset |
+| 2.1 | `suppl_pt2.1_DERIVED VARIABLES_VH.Rmd` | `mice_updatedMIDS_VH.rds`final analysis dataset |
 | 3 | `suppl_pt3_change of pain classes_descriptives_VH.Rmd` | Table 1 / figures (no RDS output) |
 | 4 | `suppl_pt4_LTA_models.Rmd` | model specification; single-imputation fits + noEXP LRTs |
 | 4.1 | `suppl_pt4.1_imputation_loop.r` (`Myriad_scripts/` on the cluster) | `raw_results_{TE,DE}_imp{i}.rds`, i = 1…60 |
-| 4.2 | `suppl_pt4.2_LTA_post_processing_pool.Rmd` | `pooled_TE.rds` / `pooled_DE.rds` ✅ paper estimates |
+| 4.2 | `suppl_pt4.2_LTA_post_processing_pool.Rmd` | `pooled_TE.rds` / `pooled_DE.rds`paper estimates |
 | 4.3 | `suppl_pt4.3_Sex_Mod.Rmd`, `SexMod_alltoHICP.r` *(exploratory)* | sex moderation tables (no RDS output) |
 
 **Data paths** (all external to the repo):

@@ -31,7 +31,7 @@ flowchart TD
     PT41["Step 4.1\nFitting loop, 60 × 2"]
     RAW[("Per-imputation fits")]
     PT42["Step 4.2\nPooling & diagnostics"]
-    POOLED[("Pooled estimates\n✅ paper results")]
+    POOLED[("Pooled estimates\n Paper Results")]
     PT43["Step 4.3\nSex moderation"]
 
     HARM --> IRT
