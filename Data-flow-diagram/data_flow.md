@@ -10,7 +10,7 @@ flowchart TD
     %% ─────────────────────────────────────────────
     %%  STAGE 0 — Raw inputs
     %% ─────────────────────────────────────────────
-    subgraph RAW["📦 Raw ELSA Data (read-only)"]
+    subgraph RAW[" Raw ELSA Data (read-only)"]
         direction TB
         HARM["Harmonised ELSA w1–9\nHg3_w1_9_ALL.tab"]
         TABS["Wave-specific tab files\nw4/5/6 core · nurse · financial\n(8 files)"]
@@ -19,12 +19,12 @@ flowchart TD
     %% ─────────────────────────────────────────────
     %%  STAGE 1.2 — Measurement invariance & IRT
     %% ─────────────────────────────────────────────
-    subgraph IRT["🔬 Step 1.2 — IRT Measurement Model (established)"]
+    subgraph IRT["Step 1.2 — IRT Measurement Model"]
         direction TB
-        PT12["Measurement_invariance_IRT.Rmd\n(review only — do not re-run)"]
+        PT12["Measurement_invariance_IRT.Rmd"]
         EXTRACT["Meas.Inv.IRTscoreExtraction.R"]
         IRT_RDS[("impactEstimates2-8\n_partialScalar.rds")]
-        PT12 -.->|"run separately"| EXTRACT
+        PT12 --> EXTRACT
         EXTRACT --> IRT_RDS
     end
 
@@ -96,7 +96,7 @@ flowchart TD
     %% ─────────────────────────────────────────────
     subgraph FIT["🖥️ Step 4.1 — Fitting Loop (60 × 2 models)"]
         direction TB
-        PT41["suppl_pt4.1_imputation_loop.r\n· multi-start lmest per imputation\n· Myriad_scripts/ = cluster route"]
+        PT41["suppl_pt4.1_imputation_loop.r\n· multi-start lmest per imputation"]
         RAW_RES[("imputations/\nraw_results_{TE,DE}_imp{i}.rds\ni = 1…60")]
         PT41 --> RAW_RES
     end
@@ -120,14 +120,6 @@ flowchart TD
         PT43["suppl_pt4.3_Sex_Mod.Rmd\nSexMod_alltoHICP.r\n· multinomial logit on Viterbi states\n· descriptive transition proportions"]
     end
 
-    %% ─────────────────────────────────────────────
-    %%  DAGs — figure for the manuscript
-    %% ─────────────────────────────────────────────
-    subgraph DAGS["🕸️ Causal DAGs"]
-        DRAW["draw_dags.R\n(init_prob_DAG · trans_prob_DAG\n· paper_DAG)"]
-        DAGFIG["output/dag_paper.png\noutput/DAG.eps — Fig. 2"]
-        DRAW --> DAGFIG
-    end
 
     %% ─────────────────────────────────────────────
     %%  CONNECTIONS BETWEEN STAGES
@@ -182,11 +174,8 @@ flowchart TD
 | 4.1 | `suppl_pt4.1_imputation_loop.r` (`Myriad_scripts/` on the cluster) | `raw_results_{TE,DE}_imp{i}.rds`, i = 1…60 |
 | 4.2 | `suppl_pt4.2_LTA_post_processing_pool.Rmd` | `pooled_TE.rds` / `pooled_DE.rds` ✅ paper estimates |
 | 4.3 | `suppl_pt4.3_Sex_Mod.Rmd`, `SexMod_alltoHICP.r` *(exploratory)* | sex moderation tables (no RDS output) |
-| — | `draw_dags.R` | `output/dag_paper.png`, `output/DAG.eps` (Fig. 2) |
 
 **Data paths** (all external to the repo):
 `rds_path` = `~/private_WP5/WP5_data/rds/` ·
 `models_path` = `~/private_WP5/WP5_data/model_fits/imputations/` ·
 `summary_path` = `~/private_WP5/WP5_data/model_fits/imputation_summaries/`
-
-All `eval=F` save chunks are intentional re-run guards — output files pre-exist on disk.
