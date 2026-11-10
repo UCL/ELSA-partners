@@ -29,4 +29,4 @@ All analyses were conducted in R. Raw data are not included in this repository.
 
 ## Funding
 
-[TODO: funding statement]
+This work was supported by a joint and equal investment from UKRI [grant number MR/W004151/1] and Arthritis UK [grant number 22891] through the Advanced Pain Discovery Platform (APDP) initiative.
