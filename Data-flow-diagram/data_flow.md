@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-28
 
-A detailed variant, showing per-stage derivations and intermediate artefacts, is in
+A detailed variant, showing per-stage derivations and intermediate pipelines, is in
 [`data_flow_detailed.md`](data_flow_detailed.md).
 
 ---
